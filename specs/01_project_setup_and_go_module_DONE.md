@@ -1,6 +1,6 @@
 # Spec 01 — Project Setup & Go Module Init
 
-**Status:** pendiente
+**Status:** DONE
 **Section:** 36 (Steps 1–3)
 **Depends on:** —
 **Blocks:** all other specs
