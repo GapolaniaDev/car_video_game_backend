@@ -213,3 +213,20 @@ For the MVP the countdown is fixed at 3 seconds; configurable later.
 - The Game Server is now a **stateful process**. Restarting it loses in-flight races. Document this in the README troubleshooting section.
 - Keep the `Race` struct immutable from outside; all mutations go through channels. This is what makes it cheap to reason about correctness.
 - Tick rate defaults to 30Hz but is configurable via `RACE_TICK_HZ` env var. Document the inverse relationship between tick rate and CPU usage.
+---
+
+## Done (2026-09-25)
+
+Implemented on branch `feature/spec-20-race-loop` → merged into `develop`.
+
+**Deliverables shipped**
+- `migrations/000005_race_state.{up,down}.sql`
+- `internal/race/{race,events,physics,track,state,snapshot,manager,race_test}.go`
+- `internal/networking/broadcast.go` + dispatcher extended for `PlayerInput`
+- `cmd/game-server/main.go`: race.Manager + broadcasterPool + cleanup loop
+- Tests: kinematics (forward, speed-clamp), checkpoint loop, race lifecycle (1p/1lap deterministic in <4s under 60Hz)
+
+**Live verification**
+- `go test ./...` is green
+- `docker compose build && up -d` runs the new migration (000005)
+- Match → JoinRaceRequest over UDP → `ok=true raceId=<uuid> initialTick=...` (race created and bound to player)
