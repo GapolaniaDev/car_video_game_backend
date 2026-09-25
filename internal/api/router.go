@@ -11,6 +11,7 @@ import (
 	"github.com/gustavo/racing-game-backend/internal/cars"
 	"github.com/gustavo/racing-game-backend/internal/database"
 	"github.com/gustavo/racing-game-backend/internal/garage"
+	"github.com/gustavo/racing-game-backend/internal/matchmaking"
 	"github.com/gustavo/racing-game-backend/internal/player"
 	"github.com/gustavo/racing-game-backend/internal/tracks"
 )
@@ -20,8 +21,9 @@ type RouterDeps struct {
 	DB          *database.Pool
 	Log         *slog.Logger
 	AuthService *auth.Service
-	JWTSecret   string // required when AuthService is set; used to build the auth middleware
-	JWTIssuer   string // expected JWT issuer claim
+	Matchmaking *matchmaking.Service // optional; nil keeps stub fallback
+	JWTSecret   string               // required when AuthService is set; used to build the auth middleware
+	JWTIssuer   string               // expected JWT issuer claim
 }
 
 // NewRouter returns a fully-configured *http.ServeMux exposing the
@@ -69,11 +71,17 @@ func NewRouter(deps RouterDeps) http.Handler {
 		mux.Handle("GET /api/v1/tracks/{id}", mw(http.HandlerFunc(th.Get)))
 	}
 
+	// /matchmaking/join
+	if deps.Matchmaking != nil && deps.JWTSecret != "" {
+		mw := auth.Middleware(deps.JWTSecret, deps.JWTIssuer, deps.Log)
+		mh := matchmaking.NewHandlers(deps.Matchmaking, deps.Log)
+		mux.Handle("POST /api/v1/matchmaking/join", mw(http.HandlerFunc(mh.Join)))
+	}
+
 	// ─── Future endpoint stubs (kept as 501 placeholders) ─────────
 	stubPaths := []string{
 		"/api/v1/players",
 		"/api/v1/matchmaking",
-		"/api/v1/matchmaking/join",
 		"/api/v1/races",
 		"/api/v1/leaderboard",
 	}

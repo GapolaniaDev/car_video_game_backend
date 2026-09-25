@@ -1,8 +1,9 @@
 // Package main starts the UDP Game Server.
 //
-// Spec 08: binds a UDP socket on GAME_SERVER_PORT and replies to PING
-// with PONG. Future milestones will replace HandlePacket with
-// Protobuf decoding and add per-race goroutines.
+// Spec 19: the server decodes length-prefixed Protobuf, validates the
+// game_token against the local Postgres `matchmaking_assignments` row
+// and replies with a JoinRaceResponse. Future specs (race loop, input,
+// snapshots) extend the dispatcher with player+session state.
 package main
 
 import (
@@ -14,6 +15,8 @@ import (
 	"syscall"
 
 	"github.com/gustavo/racing-game-backend/internal/config"
+	"github.com/gustavo/racing-game-backend/internal/database"
+	"github.com/gustavo/racing-game-backend/internal/matchmaking"
 	"github.com/gustavo/racing-game-backend/internal/networking"
 )
 
@@ -28,12 +31,31 @@ func main() {
 		slog.Int("udp_port", cfg.GameServerPort),
 	)
 
+	// Establish the DB pool the dispatcher needs for token verification.
+	startupCtx, startupCancel := context.WithTimeout(context.Background(), cfg.PostgresReadyTimeout())
+	defer startupCancel()
+
+	pool, err := database.New(startupCtx, cfg, log)
+	if err != nil {
+		log.Error("postgres not reachable from game-server", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+	matchRepo := matchmaking.NewRepo(pool.Pool)
+	matchRepo.SetTokenSecret(cfg.GameTokenSecret)
+	defer pool.Close()
+
+	// Wire UDP + dispatcher.
 	srv, err := networking.NewUDPServer(cfg.GameServerPort, log)
 	if err != nil {
 		log.Error("failed to bind udp socket", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
-	log.Info("udp server listening", slog.String("addr", srv.LocalAddr().String()))
+	srv.SetDispatcher(networking.NewDispatcher(matchRepo, nil, log))
+	log.Info("udp server listening",
+		slog.String("addr", srv.LocalAddr().String()),
+		slog.String("public_host", cfg.GameServerPublicHost),
+		slog.Int("public_port", cfg.GameServerPublicPort),
+	)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()

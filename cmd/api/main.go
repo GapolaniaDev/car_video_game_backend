@@ -25,6 +25,7 @@ import (
 	"github.com/gustavo/racing-game-backend/internal/auth"
 	"github.com/gustavo/racing-game-backend/internal/config"
 	"github.com/gustavo/racing-game-backend/internal/database"
+	"github.com/gustavo/racing-game-backend/internal/matchmaking"
 )
 
 func main() {
@@ -45,26 +46,38 @@ func main() {
 
 	var pool *database.Pool
 	var authSvc *auth.Service
+	var matchSvc *matchmaking.Service
 	p, err := database.New(startupCtx, cfg, log)
 	if err != nil {
 		log.Warn("database not reachable at startup", slog.String("error", err.Error()))
 	} else {
 		pool = p
+		authRepo := auth.NewRepo(pool.Pool)
 		authSvc = auth.NewService(
-			auth.NewRepo(pool.Pool),
+			authRepo,
 			cfg.JWTSecret,
 			cfg.JWTIssuer,
 			cfg.JWTAccessTTL,
 			log,
 		)
+		matchRepo := matchmaking.NewRepo(pool.Pool)
+		matchRepo.SetTokenSecret(cfg.GameTokenSecret)
+		matchSvc = matchmaking.NewService(
+			matchRepo,
+			cfg.GameServerPublicHost,
+			cfg.GameServerPublicPort,
+			cfg.GameTokenSecret,
+			log,
+		)
 	}
 
 	router := api.NewRouter(api.RouterDeps{
-		DB:          pool,
-		Log:         log,
-		AuthService: authSvc,
-		JWTSecret:   cfg.JWTSecret,
-		JWTIssuer:   cfg.JWTIssuer,
+		DB:              pool,
+		Log:             log,
+		AuthService:     authSvc,
+		Matchmaking:     matchSvc,
+		JWTSecret:       cfg.JWTSecret,
+		JWTIssuer:       cfg.JWTIssuer,
 	})
 
 	server := &http.Server{
