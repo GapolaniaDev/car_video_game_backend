@@ -1,6 +1,6 @@
 # Spec 10 — UDP Test Client
 
-**Status:** pendiente
+**Status:** DONE
 **Section:** 26
 **Depends on:** Spec 08
 **Blocks:** Spec 17
