@@ -1,6 +1,6 @@
 # Spec 13 — Graceful Shutdown & Health Checks
 
-**Status:** pendiente
+**Status:** DONE
 **Section:** 23, 24
 **Depends on:** Specs 05, 08
 **Blocks:** Specs 15, 17
