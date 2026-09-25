@@ -159,3 +159,24 @@ All routes under `/api/v1/`. All routes other than `/health` and `/auth/*` are p
 - Reuse the `internal/auth.RequireAuth` middleware. Add `auth.PlayerIDFromContext(ctx) (uuid.UUID, bool)` helper so handlers can read the authenticated player without parsing claims themselves.
 - Keep JSON tags explicit on every response struct; do not rely on default `MarshalJSON` behavior.
 - The OpenAPI YAML must be human-edited (not generated). It is the contract — it should reflect intent, not whatever Go happens to marshal.
+---
+
+## Done (2026-09-25)
+
+Implemented on branch `feature/spec-18-domain-openapi` → merged into `develop`.
+
+**Deliverables shipped**
+- `migrations/000003_seeds.{up,down}.sql` — 3 cars, 2 tracks, default-car grant
+- `internal/player/{player.go,handler.go}` — GET /api/v1/players/me (JWT)
+- `internal/cars/{cars.go,handler.go}` + `handler_test.go`
+- `internal/garage/{garage.go,handler.go}`
+- `internal/tracks/{tracks.go,handler.go}` + `handler_test.go`
+- `internal/api/router.go` — JWT middleware (auth.Middleware) wired for all four
+- `cmd/api/main.go` — passes JWTSecret + JWTIssuer to router
+- `docs/openapi.yaml` — full REST surface (info, servers, tags, schemas, responses)
+
+**Live verification**
+- `GET /cars` → returns the 3 seed cars with baseStats
+- `GET /tracks` → returns Crescent Bay + Granite Pass with layouts
+- `GET /garage` → returns the seeded Veloce for pre-existing players
+- 401 missing token, 400 bad uuid, 404 unknown id — all correct
