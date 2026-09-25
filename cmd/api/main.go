@@ -1,8 +1,13 @@
 // Package main starts the REST API server.
 //
-// Spec 05: HTTP server, /api/v1/health endpoint, structured logging,
-// and route stubs for future endpoints. Graceful shutdown and DB
-// integration land in Spec 13.
+// Responsibilities:
+//   * Load configuration and initialize structured logging (slog).
+//   * Optionally open a Postgres connection pool (best-effort: API
+//     still boots if DB is briefly unavailable; /health surfaces
+//     state).
+//   * Start the HTTP server and wait for SIGINT/SIGTERM, then run a
+//     graceful shutdown sequence: stop accepting connections, finish
+//     in-flight requests, close the DB pool.
 package main
 
 import (
@@ -12,6 +17,8 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/gustavo/racing-game-backend/internal/api"
@@ -30,14 +37,13 @@ func main() {
 		slog.Int("port", cfg.APIPort),
 	)
 
-	// DB connection is best-effort here. The /health endpoint
-	// surfaces DB state, so the API itself can boot and respond even
-	// when Postgres is briefly unavailable.
-	ctx, cancel := context.WithTimeout(context.Background(), cfg.PostgresReadyTimeout())
-	defer cancel()
+	// DB connection is best-effort: a missing Postgres must not stop
+	// the API from booting. The /health endpoint reports state.
+	startupCtx, startupCancel := context.WithTimeout(context.Background(), cfg.PostgresReadyTimeout())
+	defer startupCancel()
 
 	var pool *database.Pool
-	p, err := database.New(ctx, cfg, log)
+	p, err := database.New(startupCtx, cfg, log)
 	if err != nil {
 		log.Warn("database not reachable at startup", slog.String("error", err.Error()))
 	} else {
@@ -55,13 +61,47 @@ func main() {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	// Spec 13 will replace this with proper signal handling. For
-	// Spec 05 we just ListenAndServe and exit on error.
-	log.Info("http server listening", slog.String("addr", server.Addr))
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Error("http server error", slog.String("error", err.Error()))
-		os.Exit(1)
+	// Signal-aware context. When SIGINT or SIGTERM arrives, cancel
+	// the context so serve() can return and shutdown can proceed.
+	rootCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	serveErrCh := make(chan error, 1)
+	go func() {
+		log.Info("http server listening", slog.String("addr", server.Addr))
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serveErrCh <- err
+			return
+		}
+		serveErrCh <- nil
+	}()
+
+	select {
+	case err := <-serveErrCh:
+		if err != nil {
+			log.Error("http server error", slog.String("error", err.Error()))
+			cleanupAndExit(pool, log, 1)
+			return
+		}
+	case <-rootCtx.Done():
+		log.Info("shutdown signal received")
 	}
 
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Error("http server shutdown error", slog.String("error", err.Error()))
+	} else {
+		log.Info("http server stopped cleanly")
+	}
+
+	cleanupAndExit(pool, log, 0)
+}
+
+func cleanupAndExit(pool *database.Pool, log *slog.Logger, code int) {
+	if pool != nil {
+		pool.Close()
+	}
 	log.Info("backend-api stopped")
+	os.Exit(code)
 }
