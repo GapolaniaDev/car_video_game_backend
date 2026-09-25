@@ -1,6 +1,6 @@
 # Spec 12 — Tests
 
-**Status:** pendiente
+**Status:** DONE
 **Section:** 27
 **Depends on:** Specs 02, 05, 08
 **Blocks:** Spec 17
