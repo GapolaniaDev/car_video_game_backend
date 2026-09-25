@@ -1,6 +1,6 @@
 # Spec 08 — UDP Game Server (PING → PONG)
 
-**Status:** pendiente
+**Status:** DONE
 **Section:** 8, 22, 23
 **Depends on:** Spec 02
 **Blocks:** Specs 10, 11, 14
