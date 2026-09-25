@@ -1,0 +1,46 @@
+# ───────────── OS / editor ─────────────
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ───────────── Secrets / local env ─────────────
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ───────────── Go ─────────────
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+coverage.out
+coverage.html
+vendor/
+.gocache/
+
+# ───────────── Docker ─────────────
+postgres_data/
+docker-data/
+
+# ───────────── Logs ─────────────
+*.log
+logs/
+
+# ───────────── Build artifacts ─────────────
+tmp/
+.cache/
+*.tmp
+
+# ───────────── Claude ─────────────
+.claude/
+
+# ───────────── Protobuf (committed by Spec 11; ignore local regen) ─────────────
+# protocol/gamepb/*.pb.go is committed per Spec 11, so we DO NOT gitignore it.
+
+# ───────────── Migrations test data ─────────────
+# migrations/ SQL files are committed; nothing to ignore here.
