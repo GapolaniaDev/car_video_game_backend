@@ -1,0 +1,41 @@
+# syntax=docker/dockerfile:1.7
+# ─────────────────────────────────────────────────────────────────────
+# Multi-stage build for the UDP Game Server.
+#
+# Output image is gcr.io/distroless/static-debian12:nonroot — no shell,
+# no package manager, runs as uid 65532. Image size is small and the
+# attack surface is minimal.
+#
+# UDP has no HTTP healthcheck, so the runtime stage intentionally
+# omits HEALTHCHECK — orchestration should rely on tcp/udp probes at
+# the docker-compose level instead.
+# ─────────────────────────────────────────────────────────────────────
+
+# ─── Build stage ─────────────────────────────────────────────────────
+FROM golang:1.27-alpine AS build
+
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+RUN CGO_ENABLED=0 go build \
+        -trimpath \
+        -ldflags="-s -w" \
+        -o /out/game-server \
+        ./cmd/game-server
+
+# ─── Runtime stage ───────────────────────────────────────────────────
+FROM gcr.io/distroless/static-debian12:nonroot AS runtime
+
+COPY --from=build /out/game-server /game-server
+
+# Game Server exposes UDP. Expose instruction is documentation;
+# docker-compose is what actually publishes the port.
+EXPOSE 7000/udp
+
+USER nonroot:nonroot
+
+ENTRYPOINT ["/game-server"]
