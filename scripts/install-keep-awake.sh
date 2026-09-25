@@ -54,8 +54,10 @@ cat > "$PLIST_PATH" <<PLIST
 
     <key>ProgramArguments</key>
     <array>
-        <string>/bin/bash</string>
-        <string>${REPO_ROOT}/scripts/keep-awake-on-ac.sh</string>
+        <!-- call caffeinate directly; no shell wrapper so we don't
+             hit macOS TCC issues with translocated bash scripts. -->
+        <string>/usr/bin/caffeinate</string>
+        <string>-dis</string>
     </array>
 
     <key>StandardOutPath</key>
