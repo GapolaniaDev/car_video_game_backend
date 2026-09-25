@@ -1,8 +1,6 @@
-// Package networking provides the UDP networking primitives used by the
-// Game Server. It is intentionally small: a thin wrapper around
-// net.UDPConn plus a pure HandlePacket function whose protocol can be
-// swapped out (text today, Protobuf in a future milestone) without
-// touching the read loop.
+// Package networking provides the UDP networking primitives used by
+// the Game Server. It exposes a thin wrapper around net.UDPConn plus
+// a Protobuf dispatcher.
 package networking
 
 import (
@@ -11,26 +9,16 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"strings"
 	"sync"
 	"time"
+
+	"github.com/gustavo/racing-game-backend/internal/protoframing"
 )
 
-// HandlePacket inspects an incoming datagram and returns the reply to
-// send back, or nil when the packet should be silently ignored.
-//
-// MVP behavior (Spec 08):
-//   - "PING" (trimmed)   → "PONG"
-//   - anything else      → nil
-//
-// This is the single point where the wire protocol will be replaced
-// by Protobuf decoding in the future.
-func HandlePacket(payload []byte) []byte {
-	msg := strings.TrimSpace(string(payload))
-	if strings.EqualFold(msg, "PING") {
-		return []byte("PONG")
-	}
-	return nil
+// Dispatcher routes a decoded Protobuf message to a reply. It must
+// be safe to call concurrently from multiple goroutines.
+type DispatcherHandler interface {
+	Handle(ctx context.Context, payload []byte, from *net.UDPAddr) []byte
 }
 
 // UDPServer wraps a single net.UDPConn with a context-aware read loop
@@ -38,6 +26,8 @@ func HandlePacket(payload []byte) []byte {
 type UDPServer struct {
 	conn *net.UDPConn
 	log  *slog.Logger
+
+	dispatcher DispatcherHandler
 
 	wg   sync.WaitGroup
 	done chan struct{}
@@ -62,19 +52,25 @@ func NewUDPServer(port int, log *slog.Logger) (*UDPServer, error) {
 	}, nil
 }
 
+// SetDispatcher wires the Protobuf dispatcher. Must be called before
+// Serve.
+func (s *UDPServer) SetDispatcher(d DispatcherHandler) { s.dispatcher = d }
+
 // LocalAddr returns the actual local address the server is bound to
 // (useful when port 0 was used for testing).
 func (s *UDPServer) LocalAddr() *net.UDPAddr { return s.conn.LocalAddr().(*net.UDPAddr) }
 
 // Serve runs the read loop until ctx is canceled or the socket is
-// closed. Replies are sent synchronously on the same goroutine; for
-// the MVP traffic this is fine. A future milestone may add a write
-// pool per race.
+// closed. Each datagram is length-prefix decoded, dispatched, and the
+// reply is length-prefix encoded back to the remote.
 func (s *UDPServer) Serve(ctx context.Context) error {
 	s.wg.Add(1)
 	defer s.wg.Done()
 
-	buf := make([]byte, 1500) // typical MTU
+	buf := make([]byte, 2048)
+	var pending []byte
+	assembled := make([]byte, 0, 4096)
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -85,9 +81,6 @@ func (s *UDPServer) Serve(ctx context.Context) error {
 		default:
 		}
 
-		// Set a read deadline so we periodically wake up to check
-		// the context — otherwise a blocking Read could outlive a
-		// shutdown signal.
 		_ = s.conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
 
 		n, from, err := s.conn.ReadFromUDP(buf)
@@ -96,8 +89,6 @@ func (s *UDPServer) Serve(ctx context.Context) error {
 			if errors.As(err, &nerr) && nerr.Timeout() {
 				continue
 			}
-			// "use of closed network connection" is the normal
-			// shutdown signal after Close().
 			if errors.Is(err, net.ErrClosed) {
 				return nil
 			}
@@ -105,35 +96,48 @@ func (s *UDPServer) Serve(ctx context.Context) error {
 			continue
 		}
 
-		// Defensive copy because HandlePacket (and future Protobuf
-		// decode) may keep a reference to the slice.
-		pkt := make([]byte, n)
-		copy(pkt, buf[:n])
+		// Reassemble one frame's worth of bytes.
+		pending = append(pending[:0], buf[:n]...)
+		assembled = assembled[:0]
 
-		s.log.Debug("udp packet received",
-			slog.String("remote", from.String()),
-			slog.Int("bytes", n),
-		)
+		payload, _, err := protoframing.Decode(pending)
+		if err != nil {
+			s.log.Debug("udp frame decode error",
+				slog.String("from", from.String()),
+				slog.String("err", err.Error()),
+				slog.Int("bytes", n),
+			)
+			continue
+		}
+		assembled = append(assembled, payload...)
 
-		reply := HandlePacket(pkt)
-		if reply == nil {
-			s.log.Debug("udp packet ignored (no reply)",
-				slog.String("remote", from.String()),
+		if s.dispatcher == nil {
+			s.log.Debug("udp packet received but no dispatcher wired",
+				slog.String("from", from.String()),
+				slog.Int("bytes", len(assembled)),
 			)
 			continue
 		}
 
-		if _, err := s.conn.WriteToUDP(reply, from); err != nil {
+		reply := s.dispatcher.Handle(ctx, assembled, from)
+		if len(reply) == 0 {
+			continue
+		}
+		framed, err := protoframing.Encode(reply)
+		if err != nil {
+			s.log.Error("udp encode reply error", slog.String("err", err.Error()))
+			continue
+		}
+		if _, err := s.conn.WriteToUDP(framed, from); err != nil {
 			s.log.Error("udp write error",
 				slog.String("remote", from.String()),
 				slog.String("error", err.Error()),
 			)
 			continue
 		}
-
-		s.log.Info("udp packet replied",
+		s.log.Debug("udp packet replied",
 			slog.String("remote", from.String()),
-			slog.String("reply", string(reply)),
+			slog.Int("bytes", len(framed)),
 		)
 	}
 }

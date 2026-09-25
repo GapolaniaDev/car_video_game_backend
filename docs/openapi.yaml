@@ -18,6 +18,7 @@ tags:
   - name: cars
   - name: garage
   - name: tracks
+  - name: matchmaking
 
 paths:
   /health:
@@ -173,6 +174,29 @@ paths:
               schema: { $ref: '#/components/schemas/Track' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /matchmaking/join:
+    post:
+      tags: [matchmaking]
+      summary: Ask the API for a (matchId, game_token, gameServer) tuple
+      description: |
+        MVP matchmaking: as soon as a player asks, the service either
+        returns the first pending match with capacity left or creates
+        a new one. The returned `gameToken` is HMAC-SHA256-signed and
+        TTL=5m; it must be presented to the Game Server over UDP in
+        a length-prefixed `JoinRaceRequest`.
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MatchInfo' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '503':
+          description: no game server configured or all matches full
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Error' } }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -257,3 +281,12 @@ components:
         name:      { type: string }
         layout:    { type: object, additionalProperties: true }
         createdAt: { type: string, format: date-time }
+    MatchInfo:
+      type: object
+      required: [matchId, gameServerHost, gameServerPort, gameToken, expiresAt]
+      properties:
+        matchId:        { type: string, format: uuid }
+        gameServerHost: { type: string, example: game-server }
+        gameServerPort: { type: integer, example: 7000 }
+        gameToken:      { type: string, description: "HMAC-signed, base64url(payload).base64url(sig); TTL ~5 min" }
+        expiresAt:      { type: string, format: date-time }

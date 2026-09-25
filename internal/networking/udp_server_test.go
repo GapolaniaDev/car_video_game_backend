@@ -1,7 +1,6 @@
 package networking
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"log/slog"
@@ -9,48 +8,46 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/gustavo/racing-game-backend/internal/protoframing"
 )
 
-// TestHandlePacketPING verifies the canonical PING → PONG behavior.
-func TestHandlePacketPING(t *testing.T) {
-	cases := []string{"PING", "PING\n", "  ping  ", "pInG"}
-	for _, in := range cases {
-		got := HandlePacket([]byte(in))
-		if !bytes.Equal(got, []byte("PONG")) {
-			t.Errorf("HandlePacket(%q) = %q, want PONG", in, got)
-		}
-	}
+// echoDispatcher unconditionally replies to whatever it receives,
+// prefixing the payload with an "echoed:" header. Used by the
+// end-to-end test below.
+type echoDispatcher struct{ log *slog.Logger }
+
+func (d echoDispatcher) Handle(_ context.Context, payload []byte, _ *net.UDPAddr) []byte {
+	d.log.Debug("echo.handle", "len", len(payload))
+	return payload
 }
 
-// TestHandlePacketUnknownReturnsNil ensures unknown payloads are not
-// replied to.
-func TestHandlePacketUnknownReturnsNil(t *testing.T) {
-	if got := HandlePacket([]byte("hello")); got != nil {
-		t.Errorf("HandlePacket(hello) = %q, want nil", got)
-	}
-	if got := HandlePacket([]byte{}); got != nil {
-		t.Errorf("HandlePacket(empty) = %q, want nil", got)
-	}
-}
+// silenceHandler is a no-op dispatcher so we can verify dropped
+// packets are not replied to.
+type silenceHandler struct{}
 
-// TestUDPServerPINGPONGEndToEnd spins up the server on an ephemeral
-// port and exercises the full PING/PONG round trip.
-func TestUDPServerPINGPONGEndToEnd(t *testing.T) {
+func (silenceHandler) Handle(_ context.Context, _ []byte, _ *net.UDPAddr) []byte { return nil }
+
+// TestUDPServerLengthPrefixedRoundTrip spins up the server on an
+// ephemeral port with an echo dispatcher and verifies framing.
+func TestUDPServerLengthPrefixedRoundTrip(t *testing.T) {
 	if os.Getenv("CI_SKIP_UDP_E2E") != "" {
 		t.Skip("CI_SKIP_UDP_E2E set")
 	}
-
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	srv, err := NewUDPServer(0, log)
 	if err != nil {
 		t.Fatalf("NewUDPServer: %v", err)
 	}
+	srv.SetDispatcher(echoDispatcher{log: log})
 	defer srv.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
 	go func() { _ = srv.Serve(ctx) }()
+
+	// Give the read loop a tick.
+	time.Sleep(50 * time.Millisecond)
 
 	client, err := net.DialUDP("udp", nil, srv.LocalAddr())
 	if err != nil {
@@ -59,17 +56,54 @@ func TestUDPServerPINGPONGEndToEnd(t *testing.T) {
 	defer client.Close()
 	_ = client.SetReadDeadline(time.Now().Add(2 * time.Second))
 
-	if _, err := client.Write([]byte("PING")); err != nil {
-		t.Fatalf("Write PING: %v", err)
+	payload := []byte("hello, world")
+	framed, err := protoframing.Encode(payload)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	if _, err := client.Write(framed); err != nil {
+		t.Fatalf("Write: %v", err)
 	}
 
-	buf := make([]byte, 16)
+	buf := make([]byte, 256)
 	n, err := client.Read(buf)
 	if err != nil {
-		t.Fatalf("Read reply: %v", err)
+		t.Fatalf("Read: %v", err)
 	}
-	if got := string(buf[:n]); got != "PONG" {
-		t.Errorf("reply = %q, want PONG", got)
+	got, _, err := protoframing.Decode(buf[:n])
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if string(got) != string(payload) {
+		t.Errorf("echo mismatch: got %q want %q", got, payload)
+	}
+}
+
+// TestUDPServerSilencesUnknown verifies that with no dispatcher wired
+// the server does not reply.
+func TestUDPServerSilencesUnknown(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	srv, err := NewUDPServer(0, log)
+	if err != nil {
+		t.Fatalf("NewUDPServer: %v", err)
+	}
+	defer srv.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = srv.Serve(ctx) }()
+	time.Sleep(50 * time.Millisecond)
+
+	client, err := net.DialUDP("udp", nil, srv.LocalAddr())
+	if err != nil {
+		t.Fatalf("DialUDP: %v", err)
+	}
+	defer client.Close()
+	_ = client.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	framed, _ := protoframing.Encode([]byte("ignored"))
+	_, _ = client.Write(framed)
+	buf := make([]byte, 64)
+	if _, err := client.Read(buf); err == nil {
+		t.Fatal("expected read to time out, got data instead")
 	}
 }
 
@@ -95,8 +129,6 @@ func TestUDPServerCloseIsIdempotent(t *testing.T) {
 		t.Errorf("first Close: %v", err)
 	}
 	if err := srv.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
-		// Second close returns "use of closed network connection",
-		// which we treat as benign here.
 		t.Errorf("second Close returned unexpected error: %v", err)
 	}
 }

@@ -69,16 +69,21 @@ services:
     image: racing-game-backend/api:dev
     container_name: racing-backend-api
     environment:
-      APP_ENV:           ${APP_ENV}
-      LOG_LEVEL:         ${LOG_LEVEL}
-      API_PORT:          "8080"
-      POSTGRES_HOST:     postgres
-      POSTGRES_PORT:     "5432"
-      POSTGRES_DB:       ${POSTGRES_DB}
-      POSTGRES_USER:     ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_SSLMODE:  ${POSTGRES_SSLMODE}
-      JWT_SECRET:        ${JWT_SECRET}
+      APP_ENV:                  ${APP_ENV}
+      LOG_LEVEL:                ${LOG_LEVEL}
+      API_PORT:                 "8080"
+      POSTGRES_HOST:            postgres
+      POSTGRES_PORT:            "5432"
+      POSTGRES_DB:              ${POSTGRES_DB}
+      POSTGRES_USER:            ${POSTGRES_USER}
+      POSTGRES_PASSWORD:        ${POSTGRES_PASSWORD}
+      POSTGRES_SSLMODE:         ${POSTGRES_SSLMODE}
+      JWT_SECRET:               ${JWT_SECRET}
+      JWT_ISSUER:               ${JWT_ISSUER}
+      JWT_ACCESS_TTL:           ${JWT_ACCESS_TTL}
+      GAME_TOKEN_SECRET:        ${GAME_TOKEN_SECRET}
+      GAME_SERVER_PUBLIC_HOST:  ${GAME_SERVER_PUBLIC_HOST:-game-server}
+      GAME_SERVER_PUBLIC_PORT:  ${GAME_SERVER_PUBLIC_PORT:-7000}
     depends_on:
       postgres:
         condition: service_healthy
@@ -100,9 +105,20 @@ services:
       APP_ENV:           ${APP_ENV}
       LOG_LEVEL:         ${LOG_LEVEL}
       GAME_SERVER_PORT:  "7000"
-      JWT_SECRET:        ${JWT_SECRET}
+      POSTGRES_HOST:     postgres
+      POSTGRES_PORT:     "5432"
+      POSTGRES_DB:       ${POSTGRES_DB}
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_SSLMODE:  ${POSTGRES_SSLMODE}
+      GAME_TOKEN_SECRET: ${GAME_TOKEN_SECRET}
     ports:
       - "7000:7000/udp"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     # UDP has no HTTP healthcheck. `pgrep` would require a shell we
     # don't have. Rely on docker restart policy and explicit smoke
     # tests (go run ./cmd/udp-client).
