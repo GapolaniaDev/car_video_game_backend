@@ -1,6 +1,6 @@
 # Spec 17 — Authentication & JWT (Block 1)
 
-**Status:** pendiente
+**Status:** DONE
 **Section:** 7, 29
 **Depends on:** Specs 02 (config), 04 (migrations), 05 (router), 13 (graceful shutdown)
 **Blocks:** Specs 18, 19
