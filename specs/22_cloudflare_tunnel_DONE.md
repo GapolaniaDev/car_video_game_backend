@@ -1,6 +1,6 @@
 # Spec 22 — Cloudflare Tunnel for public access
 
-**Status:** pendiente
+**Status:** DONE (2026-09-25)
 **Section:** — (post-MVP; deployment / DevOps)
 **Depends on:** Spec 14 (docker-compose stack), Spec 18 (REST + OpenAPI)
 **Blocks:** —
@@ -227,3 +227,68 @@ Add a "Public access via Cloudflare Tunnel" section pointing to
 - The `cloudflared` container can be removed from the compose file
   for teammates who only develop locally — they can keep using
   `localhost:8081` and the existing `nginx` reverse proxy.
+
+## Implementation Notes (2026-09-25)
+
+- **`Dockerfile.cloudflared`** — the official `cloudflare/cloudflared`
+  image is scratch-based with no shell, which would prevent us from
+  running a small mode-aware entrypoint. The Dockerfile copies the
+  cloudflared binary into an Alpine base with ca-certs + tini so
+  `scripts/cloudflared-entrypoint.sh` can dispatch by `TUNNEL_MODE`.
+  Pinned cloudflared tag is `2025.11.1`.
+- **`scripts/cloudflared-entrypoint.sh`** — a 40-line POSIX shell
+  script. In `quick` mode it runs
+  `cloudflared tunnel --config /etc/cloudflared/config.yml --url
+  http://backend-api:8080`; in `named` mode it runs
+  `cloudflared tunnel run` (which reads the config file that
+  `setup-tunnel.sh` rendered). Important detail: the `--config`
+  flag is required in quick mode too — without it cloudflared
+  returns 404 from Cloudflare's edge even though the tunnel is
+  connected. The config supplies the single ingress rule that
+  quick mode requires.
+- **`scripts/setup-tunnel.sh`** — idempotent host bootstrap for
+  named mode. Runs `cloudflared tunnel login`, creates the tunnel
+  `racing-backend`, routes DNS for `api.<domain>` and
+  `racing.<domain>` (either via the Cloudflare API or via
+  `cloudflared tunnel route dns`), and writes the rendered
+  `cloudflared/config.yml`. Re-running with the same args is a
+  no-op.
+- **`cloudflared/config.yml`** — committed with a single ingress
+  rule for quick mode. In named mode `setup-tunnel.sh` replaces
+  this file with one that adds `tunnel:` + `credentials-file:`
+  fields and a 404 catch-all.
+- **`tests/cloudflared_config_test.sh`** — 22-check smoke test
+  using `yq` to validate the static config. Does NOT spin up
+  cloudflared (no egress). Catches: image pin, entrypoint
+  bind-mount, executable bits, all expected `cloudflared` sub-
+  commands referenced, env-var docs, .gitignore coverage, ingress
+  shape, and a heuristic secret-leakage scan.
+- **`docs/cloudflare-tunnel.md`** — operator-facing guide covering
+  both modes, prerequisites (Cloudflare account + DNS:Edit API
+  token), host bootstrap, boot-up, verification, troubleshooting
+  matrix, and the "why UDP isn't tunneled" rationale.
+- **`.env.example`** — adds `TUNNEL_MODE`, `TUNNEL_DOMAIN`,
+  `TUNNEL_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_ZONE_ID`,
+  `CLOUDFLARE_API_TOKEN` with explanations.
+- **`.gitignore`** — adds `cloudflared/*.json` and
+  `cloudflared/cert.pem` so the bearer credentials can't be
+  accidentally committed.
+
+**Live verification** (docker-compose, `TUNNEL_MODE=quick`):
+
+1. `docker compose build cloudflared` → built the wrapper image.
+2. `docker compose up -d cloudflared` → container stayed up.
+3. `docker logs racing-cloudflared` →
+   `Your quick Tunnel has been created! Visit it at
+   https://precision-buzz-loading-bunny.trycloudflare.com`.
+4. `curl https://<URL>/api/v1/health` → 200
+   `{"status":"ok","service":"backend-api","database":"ok"}`.
+5. `curl -X POST https://<URL>/api/v1/auth/register …` → 200,
+   valid JWT issued, player persisted.
+6. `curl https://<URL>/api/v1/players/me -H "Bearer <JWT>"` → 200,
+   profile returned.
+7. `curl https://<URL>/api/v1/cars -H "Bearer <JWT>"` → 200, 3 cars.
+8. `docker ps` → `racing-game-server 0.0.0.0:7000->7000/udp` —
+   UDP untouched, exactly as documented.
+
+Smoke test `tests/cloudflared_config_test.sh` → ALL OK (22 checks).
