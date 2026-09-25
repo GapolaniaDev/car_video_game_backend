@@ -1,6 +1,6 @@
 # Spec 21 — Post-Race: History, Results & Leaderboards (Block 5)
 
-**Status:** pendiente
+**Status:** DONE (2026-09-25)
 **Section:** 5, 13, 29
 **Depends on:** Spec 20 (race loop emits RaceFinished)
 **Blocks:** —
@@ -178,3 +178,32 @@ The `MIN` over `(player_id, best_lap_ms)` gives the player's best single lap acr
 
 - The Game Server's new Postgres dependency is **only** for result persistence. Keep all real-time state in memory; only flush on race finish.
 - The `/leaderboard` endpoint deliberately ranks best **lap**, not best total time. Total time is more gameable (shorter tracks → better times) and harder to make meaningful across tracks. Best lap is also what players compare. Document this choice in the README.
+## Implementation Notes (2026-09-25)
+
+- `internal/results` provides a `Writer` that upserts the `races`,
+  `race_players`, and `race_results` rows in a single transaction
+  with ON CONFLICT clauses for idempotent retries. `PersistWithRetry`
+  retries once on a transient error (1s delay).
+- `internal/leaderboard` exposes `GET /api/v1/leaderboard` with
+  `trackId` + `limit` query params, ranking players by their fastest
+  `best_lap_ms` on that track.
+- `internal/racehistory` exposes two endpoints:
+  `GET /api/v1/players/me/races` (keyset-paginated by `finished_at`)
+  and `GET /api/v1/races/{id}` (full race detail incl. all results).
+- The race's persistence hook is wired as an `OnFinish` callback
+  on the `race.Race` struct: when the tick loop transitions to
+  StatusFinished, the callback runs synchronously *before*
+  `CleanupFinished` can remove the race from the manager. This
+  fixes a race where the broadcaster's poll loop and the persistence
+  poll loop both observed the same finished race and one of them
+  removed it before the other persisted it.
+- The Game Server uses a tiny 5m "MVP-Loop" layout (4 waypoints at
+  (0,0), (5,0), (5,5), (0,5)) so a drive-forward-only client can
+  finish a lap without steering. All four waypoints fit inside the
+  8m checkpoint radius. The track **id** comes from the first row
+  in the `tracks` table (Crescent Bay in the seeds migration) so the
+  FK on `races.track_id` resolves.
+- The smoke test on the docker-compose stack: register → matchmaking
+  join → 15s of `--mode=player` UDP driving → race finishes in
+  ~3.2s → results persisted → `/players/me/races`, `/races/{id}`,
+  `/leaderboard?trackId=...` all return the expected rows.
