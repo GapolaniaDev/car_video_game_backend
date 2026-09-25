@@ -1,0 +1,43 @@
+# Files and directories excluded from the Docker build context.
+# Keep this aligned with .gitignore plus a few Docker-specific entries.
+
+# VCS
+.git/
+.gitignore
+
+# Local config and secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Build artifacts
+bin/
+dist/
+*.exe
+*.test
+*.out
+coverage.out
+coverage.html
+vendor/
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
+*.swo
+
+# Claude
+.claude/
+
+# Specs are not needed inside runtime images
+specs/
+
+# README/docs not needed in runtime
+README.md
+PROMPT.md
+docs/
+
+# Migrations are mounted separately by docker-compose
+migrations/
