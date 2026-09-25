@@ -1,33 +1,52 @@
 openapi: 3.0.3
 info:
   title: Racing Game Backend API
-  version: 0.3.0
+  version: 0.5.0
   description: |
     REST surface of the multiplayer racing-game backend MVP.
-    Auth uses JWT Bearer tokens issued by `/auth/*`. Real-time
-    race traffic travels over a separate UDP channel (see the
-    `protocol/game.proto` message definitions).
+
+    All endpoints are prefixed with `/api/v1`. Authentication uses
+    JWT Bearer tokens issued by `/auth/*`. Real-time race traffic
+    travels over a separate UDP channel (see `protocol/game.proto`
+    for the Protobuf wire format and `docs/udp.md` for framing).
+
+    Endpoints marked with the `bearerAuth` security scheme require
+    the `Authorization: Bearer <jwt>` header.
+  contact:
+    name: Racing Game Backend
+    url: https://example.com/racing-game-backend
 servers:
   - url: http://localhost:8081/api/v1
     description: Local Docker Compose (nginx on host port 8081)
 
 tags:
   - name: meta
+    description: Health and service info
   - name: auth
+    description: Account registration, login, guest accounts
   - name: player
+    description: Authenticated-player endpoints (profile, history)
   - name: cars
+    description: Global car catalog (read-only)
   - name: garage
+    description: Cars owned by the authenticated player
   - name: tracks
+    description: Global track catalog (read-only)
   - name: matchmaking
+    description: Matchmaking join, race results, leaderboards
 
 paths:
   /health:
     get:
       tags: [meta]
       summary: Health probe
+      description: |
+        Best-effort service check. When the database is configured
+        a short ping is performed; the `database` field reports
+        `ok`, `down`, or `skipped` (no DB wired).
       responses:
         '200':
-          description: service is up; reports DB state
+          description: service is up
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Health' }
@@ -35,24 +54,30 @@ paths:
   /auth/register:
     post:
       tags: [auth]
-      summary: Register email/password account
+      summary: Register an email/password account
       requestBody:
         required: true
         content:
           application/json:
             schema: { $ref: '#/components/schemas/RegisterRequest' }
       responses:
-        '201':
-          description: account created
+        '200':
+          description: account created, JWT issued
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '409':
-          description: email already taken
+        '400':
+          description: invalid input (malformed JSON, bad email, short password, etc.)
           content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
+            application/json: { schema: { $ref: '#/components/schemas/Error' } }
+        '409':
+          description: email already in use
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Error' } }
+        '500':
+          description: internal error
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Error' } }
 
   /auth/login:
     post:
@@ -69,23 +94,42 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
+        '400':
+          description: invalid JSON
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Error' } }
+        '401':
+          description: invalid credentials (intentionally vague — same response whether or not the email exists)
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Error' } }
+        '500':
+          description: internal error
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Error' } }
 
   /auth/guest:
     post:
       tags: [auth]
       summary: Mint a guest account
+      description: |
+        Creates a temporary player record and returns a JWT. No
+        request body is needed; the server picks a fresh display
+        name and UUID.
       responses:
-        '201':
-          description: guest created
+        '200':
+          description: guest account created
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuthResponse' }
+        '500':
+          description: internal error
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Error' } }
 
   /players/me:
     get:
       tags: [player]
-      summary: Get the authenticated player profile
+      summary: Get the authenticated player's profile
       security: [{ bearerAuth: [] }]
       responses:
         '200':
@@ -93,7 +137,8 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PlayerProfile' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /cars:
     get:
@@ -108,6 +153,8 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/Car' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /cars/{id}:
     get:
@@ -125,8 +172,14 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Car' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '404': { $ref: '#/components/responses/NotFound' }
+        '400':
+          description: malformed UUID
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Error' } }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /garage:
     get:
@@ -135,12 +188,14 @@ paths:
       security: [{ bearerAuth: [] }]
       responses:
         '200':
-          description: ok
+          description: ok — empty array when the player owns nothing yet
           content:
             application/json:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/GarageEntry' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /tracks:
     get:
@@ -155,6 +210,8 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/Track' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /tracks/{id}:
     get:
@@ -172,28 +229,39 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Track' }
-        '404': { $ref: '#/components/responses/NotFound' }
+        '400':
+          description: malformed UUID
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Error' } }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /matchmaking/join:
     post:
       tags: [matchmaking]
       summary: Ask the API for a (matchId, game_token, gameServer) tuple
       description: |
-        MVP matchmaking: as soon as a player asks, the service either
-        returns the first pending match with capacity left or creates
-        a new one. The returned `gameToken` is HMAC-SHA256-signed and
-        TTL=5m; it must be presented to the Game Server over UDP in
-        a length-prefixed `JoinRaceRequest`.
+        MVP matchmaking is immediate and stateless. The service
+        returns the most-recently created match with capacity left,
+        or creates a brand-new one if every existing match is full
+        (max 4 players per match).
+
+        The returned `gameToken` is HMAC-SHA256-signed (TTL ~5
+        minutes) and must be presented to the Game Server over UDP
+        inside a length-prefixed `JoinRaceRequest` Protobuf message.
       security: [{ bearerAuth: [] }]
       responses:
         '200':
-          description: ok
+          description: ok — join a pending or new match
           content:
             application/json:
               schema: { $ref: '#/components/schemas/MatchInfo' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '503':
-          description: no game server configured or all matches full
+          description: no game server configured, or all matches full
           content:
             application/json: { schema: { $ref: '#/components/schemas/Error' } }
 
@@ -202,30 +270,37 @@ paths:
       tags: [player]
       summary: Recent races for the authenticated player
       description: |
-        Keyset-paginated by `finished_at`. Default page size 20,
-        max 100. `cursor` is the RFC3339 finished_at of the last
-        race of the previous page.
+        Keyset-paginated by `finished_at` (descending). Pass the
+        `nextCursor` from the previous page as `cursor` on the next
+        request. Default page size is 20; `limit` is unclamped
+        server-side — keep it small.
       security: [{ bearerAuth: [] }]
       parameters:
         - in: query
           name: limit
-          schema: { type: integer, default: 20, maximum: 100 }
+          description: page size
+          schema: { type: integer, default: 20, minimum: 1 }
         - in: query
           name: cursor
+          description: opaque RFC3339 timestamp from `nextCursor`
           schema: { type: string, format: date-time }
       responses:
         '200':
-          description: ok
+          description: ok — `nextCursor` is null when no more pages
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PlayerRaceHistoryPage' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
+        '400':
+          description: bad `limit` or unparseable `cursor`
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Error' } }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /races/{id}:
     get:
       tags: [matchmaking]
-      summary: Full detail of a single race (incl. results)
+      summary: Full detail of a single race (incl. all player results)
       security: [{ bearerAuth: [] }]
       parameters:
         - in: path
@@ -238,13 +313,23 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RaceDetail' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '404': { $ref: '#/components/responses/NotFound' }
+        '400':
+          description: malformed UUID
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Error' } }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /leaderboard:
     get:
       tags: [matchmaking]
-      summary: Top-N best laps on a track (default 10, max 100)
+      summary: Top-N best laps on a track
+      description: |
+        Ranks players by their fastest `best_lap_ms` across all
+        finished races on the given track. Default limit 10; capped
+        at 100 server-side.
       security: [{ bearerAuth: [] }]
       parameters:
         - in: query
@@ -253,15 +338,23 @@ paths:
           schema: { type: string, format: uuid }
         - in: query
           name: limit
-          schema: { type: integer, default: 10, maximum: 100 }
+          schema: { type: integer, default: 10, maximum: 100, minimum: 1 }
       responses:
         '200':
-          description: ok
+          description: ok — `entries` may be empty if no one has raced the track yet
           content:
             application/json:
               schema: { $ref: '#/components/schemas/LeaderboardResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '404': { $ref: '#/components/responses/NotFound' }
+        '400':
+          description: missing/malformed `trackId` or bad `limit`
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Error' } }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: "`trackId` does not match any catalog row"
+          content:
+            application/json: { schema: { $ref: '#/components/schemas/Error' } }
 
 components:
   securitySchemes:
@@ -269,141 +362,240 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+      description: |
+        HS256 JWT issued by `/auth/*`. Expected issuer is the
+        `JWT_ISSUER` env var on the API. The middleware extracts
+        `player_id` from the `sub` claim and stores it in the
+        request context.
+
   responses:
-    BadRequest:
-      description: bad request
-      content:
-        application/json: { schema: { $ref: '#/components/schemas/Error' } }
     Unauthorized:
-      description: missing or invalid token
+      description: missing or invalid bearer token
       content:
         application/json: { schema: { $ref: '#/components/schemas/Error' } }
     NotFound:
       description: resource not found
       content:
         application/json: { schema: { $ref: '#/components/schemas/Error' } }
+
   schemas:
     Error:
       type: object
-      properties: { error: { type: string } }
+      required: [error]
+      properties:
+        error: { type: string, example: not found }
+
     Health:
       type: object
+      required: [status, service, database]
       properties:
-        status: { type: string, example: ok }
-        db:    { type: string, example: up, enum: [up, down, unknown] }
+        status:    { type: string, example: ok }
+        service:   { type: string, example: backend-api }
+        database:  { type: string, enum: [ok, down, skipped] }
+
     RegisterRequest:
       type: object
       required: [email, password, displayName]
       properties:
-        email:       { type: string, format: email }
-        password:    { type: string, minLength: 8, maxLength: 128 }
-        displayName: { type: string, minLength: 1, maxLength: 32 }
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 32
+
     LoginRequest:
       type: object
       required: [email, password]
       properties:
         email:    { type: string, format: email }
         password: { type: string }
+
     AuthResponse:
       type: object
-      required: [accessToken, tokenType, expiresIn, playerId, userId, displayName, isGuest]
+      required: [accessToken, playerId]
+      description: |
+        Returned by `/auth/register`, `/auth/login`, and
+        `/auth/guest`. Tokens are HS256 JWTs; the client passes
+        them back as `Authorization: Bearer <accessToken>`.
       properties:
-        accessToken: { type: string }
-        tokenType:   { type: string, example: Bearer }
-        expiresIn:   { type: integer, description: seconds until expiry }
-        playerId:    { type: string, format: uuid }
-        userId:      { type: string, format: uuid }
-        displayName: { type: string }
-        isGuest:     { type: boolean }
+        accessToken:
+          type: string
+          description: JWT access token
+        playerId:
+          type: string
+          format: uuid
+          description: Player UUID (also the `sub` claim of the JWT)
+
     PlayerProfile:
       type: object
+      required: [playerId, userId, displayName, isGuest, createdAt]
       properties:
         playerId:    { type: string, format: uuid }
         userId:      { type: string, format: uuid }
         displayName: { type: string }
-        avatarUrl:   { type: string, nullable: true }
+        avatarUrl:
+          type: string
+          nullable: true
         isGuest:     { type: boolean }
         createdAt:   { type: string, format: date-time }
-        lastLoginAt: { type: string, format: date-time, nullable: true }
+        lastLoginAt:
+          type: string
+          format: date-time
+          nullable: true
+
     Car:
       type: object
+      required: [carId, name, baseStats, createdAt]
       properties:
         carId:     { type: string, format: uuid }
         name:      { type: string }
-        baseStats: { type: object, additionalProperties: true }
+        baseStats:
+          type: object
+          additionalProperties: true
+          description: Free-form JSON object (engine map keyed by stat id)
         createdAt: { type: string, format: date-time }
+
     GarageEntry:
       type: object
+      required: [playerCarId, carId, name, acquiredAt, customizations]
       properties:
         playerCarId:    { type: string, format: uuid }
         carId:          { type: string, format: uuid }
         name:           { type: string }
         acquiredAt:     { type: string, format: date-time }
-        customizations: { type: object, additionalProperties: true }
+        customizations:
+          type: object
+          additionalProperties: true
+
     Track:
       type: object
+      required: [trackId, name, layout, createdAt]
       properties:
         trackId:   { type: string, format: uuid }
         name:      { type: string }
-        layout:    { type: object, additionalProperties: true }
+        layout:
+          type: object
+          additionalProperties: true
+          description: |
+            Waypoint list, spawn points, etc. Schema is TBD; the
+            Game Server currently ignores this field and falls back
+            to a synthetic MVP-Loop layout.
         createdAt: { type: string, format: date-time }
+
     MatchInfo:
       type: object
       required: [matchId, gameServerHost, gameServerPort, gameToken, expiresAt]
       properties:
-        matchId:        { type: string, format: uuid }
-        gameServerHost: { type: string, example: game-server }
-        gameServerPort: { type: integer, example: 7000 }
-        gameToken:      { type: string, description: "HMAC-signed, base64url(payload).base64url(sig); TTL ~5 min" }
-        expiresAt:      { type: string, format: date-time }
+        matchId:
+          type: string
+          format: uuid
+        gameServerHost:
+          type: string
+          example: game-server
+          description: Hostname or IP the client connects to over UDP.
+        gameServerPort:
+          type: integer
+          example: 7000
+        gameToken:
+          type: string
+          description: |
+            HMAC-SHA256-signed JWT-style token (base64url payload +
+            base64url signature). TTL ~5 min. Present inside the
+            length-prefixed `JoinRaceRequest` Protobuf message to
+            the Game Server.
+        expiresAt:
+          type: string
+          format: date-time
+
     PlayerRaceHistoryPage:
       type: object
+      required: [races]
       properties:
-        races: { type: array, items: { $ref: '#/components/schemas/PlayerRaceSummary' } }
-        nextCursor: { type: string, format: date-time, nullable: true }
+        races:
+          type: array
+          items: { $ref: '#/components/schemas/PlayerRaceSummary' }
+        nextCursor:
+          type: string
+          format: date-time
+          nullable: true
+          description: Pass back as the `cursor` query param for the next page; null when no more pages.
+
     PlayerRaceSummary:
       type: object
+      required: [raceId, trackId, trackName, position, totalTimeMs, bestLapMs]
       properties:
-        raceId: { type: string, format: uuid }
-        trackId: { type: string, format: uuid }
-        trackName: { type: string }
-        finishedAt: { type: string, format: date-time, nullable: true }
-        position: { type: integer }
-        totalTimeMs: { type: integer }
-        bestLapMs: { type: integer }
+        raceId:      { type: string, format: uuid }
+        trackId:     { type: string, format: uuid }
+        trackName:   { type: string }
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        position:    { type: integer, minimum: 1 }
+        totalTimeMs: { type: integer, minimum: 0 }
+        bestLapMs:   { type: integer, minimum: 0 }
+
     RaceDetail:
       type: object
+      required: [raceId, trackId, trackName, status, results]
       properties:
-        raceId: { type: string, format: uuid }
-        trackId: { type: string, format: uuid }
+        raceId:    { type: string, format: uuid }
+        trackId:   { type: string, format: uuid }
         trackName: { type: string }
-        status: { type: string, enum: [pending, in_progress, finished, cancelled] }
-        startedAt: { type: string, format: date-time, nullable: true }
-        finishedAt: { type: string, format: date-time, nullable: true }
+        status:
+          type: string
+          enum: [pending, in_progress, finished, cancelled]
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
         results:
           type: array
           items: { $ref: '#/components/schemas/RaceResultRow' }
+
     RaceResultRow:
       type: object
+      required: [playerId, displayName, position, totalTimeMs, bestLapMs]
       properties:
-        playerId: { type: string, format: uuid }
+        playerId:    { type: string, format: uuid }
         displayName: { type: string }
-        position: { type: integer }
-        totalTimeMs: { type: integer }
-        bestLapMs: { type: integer }
+        position:    { type: integer, minimum: 1 }
+        totalTimeMs: { type: integer, minimum: 0 }
+        bestLapMs:
+          type: integer
+          minimum: 0
+          description: Zero if the player did not complete a clean lap.
+
     LeaderboardResponse:
       type: object
+      required: [trackId, trackName, entries]
       properties:
-        trackId: { type: string, format: uuid }
+        trackId:   { type: string, format: uuid }
         trackName: { type: string }
         entries:
           type: array
           items: { $ref: '#/components/schemas/LeaderboardEntry' }
+
     LeaderboardEntry:
       type: object
+      required: [rank, playerId, displayName, bestLapMs]
       properties:
-        rank: { type: integer }
-        playerId: { type: string, format: uuid }
+        rank:        { type: integer, minimum: 1 }
+        playerId:    { type: string, format: uuid }
         displayName: { type: string }
-        bestLapMs: { type: integer }
-        achievedAt: { type: string, format: date-time, nullable: true }
+        bestLapMs:   { type: integer, minimum: 1 }
+        achievedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Earliest `race_results.created_at` carrying this player's best lap on the track.
