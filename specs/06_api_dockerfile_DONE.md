@@ -1,6 +1,6 @@
 # Spec 06 — API Dockerfile
 
-**Status:** pendiente
+**Status:** DONE
 **Section:** 19
 **Depends on:** Spec 05
 **Blocks:** Spec 15
