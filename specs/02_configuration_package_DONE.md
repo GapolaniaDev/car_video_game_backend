@@ -1,6 +1,6 @@
 # Spec 02 — Configuration Package
 
-**Status:** pendiente
+**Status:** DONE
 **Section:** 21
 **Depends on:** Spec 01
 **Blocks:** Specs 03, 05, 08, 15
