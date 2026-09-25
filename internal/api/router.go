@@ -11,8 +11,10 @@ import (
 	"github.com/gustavo/racing-game-backend/internal/cars"
 	"github.com/gustavo/racing-game-backend/internal/database"
 	"github.com/gustavo/racing-game-backend/internal/garage"
+	"github.com/gustavo/racing-game-backend/internal/leaderboard"
 	"github.com/gustavo/racing-game-backend/internal/matchmaking"
 	"github.com/gustavo/racing-game-backend/internal/player"
+	"github.com/gustavo/racing-game-backend/internal/racehistory"
 	"github.com/gustavo/racing-game-backend/internal/tracks"
 )
 
@@ -78,24 +80,48 @@ func NewRouter(deps RouterDeps) http.Handler {
 		mux.Handle("POST /api/v1/matchmaking/join", mw(http.HandlerFunc(mh.Join)))
 	}
 
+	// /players/me/races, /races/{id}, /leaderboard (Spec 21)
+	if deps.DB != nil && deps.JWTSecret != "" {
+		mw := auth.Middleware(deps.JWTSecret, deps.JWTIssuer, deps.Log)
+		historyRepo := racehistory.NewRepo(deps.DB.Pool)
+		hh := racehistory.NewHandler(historyRepo, deps.Log)
+		mux.Handle("GET /api/v1/players/me/races", mw(http.HandlerFunc(hh.PlayerRaces)))
+
+		lbRepo := leaderboard.NewRepo(deps.DB.Pool)
+		lh := leaderboard.NewHandler(lbRepo, deps.Log)
+		mux.Handle("GET /api/v1/leaderboard", mw(http.HandlerFunc(lh.Top)))
+
+		mux.Handle("GET /api/v1/races/{id}", mw(http.HandlerFunc(hh.Race)))
+	}
+
 	// ─── Future endpoint stubs (kept as 501 placeholders) ─────────
+	// http.ServeMux panics when the same method+path is registered
+	// twice, so we only register a stub for paths whose real
+	// handler was NOT wired above.
 	stubPaths := []string{
 		"/api/v1/players",
 		"/api/v1/races",
-		"/api/v1/leaderboard",
 	}
 	for _, p := range stubPaths {
 		mux.HandleFunc("GET "+p, handlers.Stub(p))
 		mux.HandleFunc("POST "+p, handlers.Stub(p))
 	}
-	// /matchmaking/join: stub unless the real handler was wired above.
+	// /matchmaking root is always a stub.
+	mux.HandleFunc("GET /api/v1/matchmaking", handlers.Stub("/api/v1/matchmaking"))
+	mux.HandleFunc("POST /api/v1/matchmaking", handlers.Stub("/api/v1/matchmaking"))
 	if deps.Matchmaking == nil {
 		mux.HandleFunc("GET /api/v1/matchmaking/join", handlers.Stub("/api/v1/matchmaking/join"))
 		mux.HandleFunc("POST /api/v1/matchmaking/join", handlers.Stub("/api/v1/matchmaking/join"))
-	} else {
-		// /matchmaking root (no /join path) always falls through.
-		mux.HandleFunc("GET /api/v1/matchmaking", handlers.Stub("/api/v1/matchmaking"))
-		mux.HandleFunc("POST /api/v1/matchmaking", handlers.Stub("/api/v1/matchmaking"))
+	}
+	// The Spec 21 endpoints are real only when a DB is available;
+	// without a DB they fall back to the stub.
+	if deps.DB == nil || deps.JWTSecret == "" {
+		for _, p := range []string{
+			"/api/v1/players/me/races",
+			"/api/v1/leaderboard",
+		} {
+			mux.HandleFunc("GET "+p, handlers.Stub(p))
+		}
 	}
 
 	return middleware.Chain(mux, middleware.RequestLogger(deps.Log))

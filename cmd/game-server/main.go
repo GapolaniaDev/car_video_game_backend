@@ -8,7 +8,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -25,6 +24,7 @@ import (
 	"github.com/gustavo/racing-game-backend/internal/matchmaking"
 	"github.com/gustavo/racing-game-backend/internal/networking"
 	"github.com/gustavo/racing-game-backend/internal/race"
+	"github.com/gustavo/racing-game-backend/internal/results"
 )
 
 func main() {
@@ -55,7 +55,7 @@ func main() {
 		os.Exit(1)
 	}
 	trackLookup := buildTrackLookup(pool.Pool)
-	raceMgr := race.NewManager(30, 1, 4, trackLookup, log)
+	raceMgr := race.NewManager(30, 1, 4, trackLookup, nil, log)
 	sessions := networking.NewSessionRegistry()
 	srv.SetDispatcher(networking.NewDispatcher(matchRepo, raceMgr, sessions, log))
 	log.Info("udp server listening",
@@ -66,6 +66,32 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+
+	// Results writer: persists race_results on StatusFinished. The
+	// callback is wired into the manager here (after `ctx` exists) so
+	// the persist call has a context to use for retries.
+	resWriter := results.NewWriter(pool.Pool, log)
+	persistRace := func(r *race.Race) {
+		res := r.FinalResults()
+		entries := make([]results.Entry, 0, len(res))
+		for _, e := range res {
+			entries = append(entries, results.Entry{
+				PlayerID:    e.PlayerID,
+				Position:    e.Position,
+				TotalTimeMs: e.TotalTimeMs,
+				BestLapMs:   e.BestLapMs,
+			})
+		}
+		req := results.WriteRequest{
+			RaceID:     r.ID,
+			TrackID:    r.Track.ID,
+			StartedAt:  r.StartRealTime,
+			FinishedAt: r.FinishTime,
+			Results:    entries,
+		}
+		resWriter.PersistWithRetry(ctx, req)
+	}
+	raceMgr.SetOnFinish(persistRace)
 
 	// Match broadcaster pool: one Broadcaster per active race, each
 	// holds the per-player subscription table wired to the player's
@@ -86,21 +112,37 @@ func main() {
 }
 
 // buildTrackLookup returns a function that loads the track metadata
-// for a given match. For the MVP every match plays on "Crescent Bay"
-// (the first seeded track).
+// for a given match. The MVP plays every match on a tiny 5-meter
+// square ("MVP-Loop") so the race loop can complete end-to-end
+// without per-track steering logic. We re-use the FIRST track row
+// from Postgres (so the FK on races.track_id resolves) but ignore
+// its layout — once per-track driving is implemented the layout
+// will be loaded from the JSONB column.
 func buildTrackLookup(p *pgxpool.Pool) race.TrackLookup {
+	var cachedID uuid.UUID
+	var cachedName string
+	if p != nil {
+		_ = p.QueryRow(context.Background(),
+			`SELECT id, name FROM tracks ORDER BY name LIMIT 1`,
+		).Scan(&cachedID, &cachedName)
+	}
+	if cachedID == uuid.Nil {
+		// DB unavailable — fall back to a stable synthetic UUID.
+		// Persistence will fail because of the FK, but the race
+		// itself still runs.
+		cachedID = uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc")
+		cachedName = "MVP-Loop"
+	}
+	finalID := cachedID
+	finalName := cachedName
 	return func(_ uuid.UUID) (*race.Track, error) {
-		var id uuid.UUID
-		var name string
-		var layout []byte
-		err := p.QueryRow(context.Background(),
-			`SELECT id, name, layout FROM tracks WHERE name = 'Crescent Bay' LIMIT 1`,
-		).Scan(&id, &name, &layout)
-		if err != nil {
-			return nil, fmt.Errorf("lookup track: %w", err)
-		}
-		raw := json.RawMessage(layout)
-		return race.ParseTrackLayout(id, name, raw)
+		return &race.Track{
+			ID:   finalID,
+			Name: finalName,
+			Waypoints: []race.Waypoint{
+				{X: 0, Z: 0}, {X: 5, Z: 0}, {X: 5, Z: 5}, {X: 0, Z: 5},
+			},
+		}, nil
 	}
 }
 
@@ -184,4 +226,11 @@ func (p *broadcasterPool) watch(ctx context.Context) {
 			p.races.CleanupFinished()
 		}
 	}
+}
+
+// watchRaceFinishes is retained as a no-op stub so callers using the
+// older RaceManager signature still link. Persistence is now driven
+// by the race's OnFinish hook.
+func watchRaceFinishes(ctx context.Context, rm *race.Manager, w *results.Writer, log *slog.Logger) {
+	<-ctx.Done()
 }

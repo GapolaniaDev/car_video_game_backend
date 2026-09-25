@@ -23,16 +23,15 @@ func TestRouterHealthAndStubs(t *testing.T) {
 		wantStatus int
 	}{
 		{http.MethodGet, "/api/v1/health", http.StatusOK},
-		{http.MethodPost, "/api/v1/auth/register", http.StatusNotImplemented}, // stub: no AuthService in test
+		{http.MethodPost, "/api/v1/auth/register", http.StatusNotImplemented},
 		{http.MethodPost, "/api/v1/auth/login", http.StatusNotImplemented},
 		{http.MethodPost, "/api/v1/auth/guest", http.StatusNotImplemented},
-		{http.MethodGet, "/api/v1/matchmaking", http.StatusNotImplemented},
+		{http.MethodGet, "/api/v1/matchmaking/join", http.StatusNotImplemented},
 		{http.MethodPost, "/api/v1/matchmaking/join", http.StatusNotImplemented},
+		{http.MethodGet, "/api/v1/players/me/races", http.StatusNotImplemented},
 		{http.MethodGet, "/api/v1/leaderboard", http.StatusNotImplemented},
-		{http.MethodGet, "/api/v1/no-such-path", http.StatusNotImplemented},
+		{http.MethodGet, "/api/v1/no-such-path", http.StatusNotFound},
 	}
-	// Last entry: unknown paths return 404 (default mux).
-	tests[len(tests)-1].wantStatus = http.StatusNotFound
 
 	for _, tc := range tests {
 		req := httptest.NewRequest(tc.method, tc.path, nil)

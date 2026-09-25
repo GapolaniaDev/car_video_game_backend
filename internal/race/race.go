@@ -63,7 +63,15 @@ type Race struct {
 	InputCh      chan InputMsg
 	Done         chan struct{}
 	SnapshotOut  chan WorldSnapshot
+	FinishAck    chan struct{} // closed when FinishNotify has been called
 	closeOnce    sync.Once
+
+	// OnFinish is invoked exactly once, under the race mutex, the
+	// instant the race transitions to StatusFinished. Callbacks see
+	// the full final state and are expected to be fast — anything
+	// that could block (DB, network) should be dispatched in its own
+	// goroutine. Set after construction by the manager.
+	OnFinish func(*Race)
 
 	log *slog.Logger
 }
@@ -99,6 +107,7 @@ func New(id uuid.UUID, track *Track, tickHz, maxLaps, maxPlayers int, log *slog.
 		InputCh:    make(chan InputMsg, 256),
 		Done:       make(chan struct{}),
 		SnapshotOut: make(chan WorldSnapshot, 4),
+		FinishAck:   make(chan struct{}),
 		log:        log,
 	}
 }
