@@ -1,6 +1,6 @@
 # Spec 03 — Database Infrastructure (Postgres Service + pgxpool)
 
-**Status:** pendiente
+**Status:** DONE
 **Section:** 12, 14, 17, 20
 **Depends on:** Spec 02
 **Blocks:** Specs 04, 05, 15
