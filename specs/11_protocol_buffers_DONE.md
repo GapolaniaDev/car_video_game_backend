@@ -1,6 +1,6 @@
 # Spec 11 — Protocol Buffers (`protocol/game.proto`)
 
-**Status:** pendiente
+**Status:** DONE
 **Section:** 11
 **Depends on:** Spec 01
 **Blocks:** Spec 17 (validation only)
