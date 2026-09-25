@@ -26,22 +26,24 @@ This folder contains the implementation specs derived from `../PROMPT.md`. Every
 
 | # | File | Title | Status |
 |---|------|-------|--------|
-| 01 | `01_project_setup_and_go_module_pendiente.md` | Project Setup & Go Module Init | pendiente |
-| 02 | `02_configuration_package_pendiente.md` | Configuration Package | pendiente |
-| 03 | `03_database_infrastructure_pendiente.md` | Database Infrastructure (Postgres + pgxpool) | pendiente |
-| 04 | `04_migrations_pendiente.md` | Migrations | pendiente |
-| 05 | `05_rest_api_and_health_endpoint_pendiente.md` | REST API + Health Endpoint | pendiente |
-| 06 | `06_api_dockerfile_pendiente.md` | API Dockerfile | pendiente |
-| 07 | `07_nginx_configuration_pendiente.md` | Nginx Configuration | pendiente |
-| 08 | `08_udp_game_server_ping_pong_pendiente.md` | UDP Game Server (PING/PONG) | pendiente |
-| 09 | `09_game_server_dockerfile_pendiente.md` | Game Server Dockerfile | pendiente |
-| 10 | `10_udp_test_client_pendiente.md` | UDP Test Client | pendiente |
-| 11 | `11_protocol_buffers_pendiente.md` | Protocol Buffers (`game.proto`) | pendiente |
-| 12 | `12_tests_pendiente.md` | Tests | pendiente |
-| 13 | `13_graceful_shutdown_and_healthchecks_pendiente.md` | Graceful Shutdown & Health Checks | pendiente |
-| 14 | `14_docker_compose_orchestration_pendiente.md` | Docker Compose Orchestration | pendiente |
-| 15 | `15_readme_documentation_pendiente.md` | README Documentation | pendiente |
-| 16 | `16_final_validation_and_verification_pendiente.md` | Final Validation & Verification | pendiente |
+| 01 | `01_project_setup_and_go_module_DONE.md` | Project Setup & Go Module Init | **DONE** |
+| 02 | `02_configuration_package_DONE.md` | Configuration Package | **DONE** |
+| 03 | `03_database_infrastructure_DONE.md` | Database Infrastructure (Postgres + pgxpool) | **DONE** |
+| 04 | `04_migrations_DONE.md` | Migrations | **DONE** |
+| 05 | `05_rest_api_and_health_endpoint_DONE.md` | REST API + Health Endpoint | **DONE** |
+| 06 | `06_api_dockerfile_DONE.md` | API Dockerfile | **DONE** |
+| 07 | `07_nginx_configuration_DONE.md` | Nginx Configuration | **DONE** |
+| 08 | `08_udp_game_server_ping_pong_DONE.md` | UDP Game Server (PING/PONG) | **DONE** |
+| 09 | `09_game_server_dockerfile_DONE.md` | Game Server Dockerfile | **DONE** |
+| 10 | `10_udp_test_client_DONE.md` | UDP Test Client | **DONE** |
+| 11 | `11_protocol_buffers_DONE.md` | Protocol Buffers (`game.proto`) | **DONE** |
+| 12 | `12_tests_DONE.md` | Tests | **DONE** |
+| 13 | `13_graceful_shutdown_and_healthchecks_DONE.md` | Graceful Shutdown & Health Checks | **DONE** |
+| 14 | `14_docker_compose_orchestration_DONE.md` | Docker Compose Orchestration | **DONE** |
+| 15 | `15_readme_documentation_DONE.md` | README Documentation | **DONE** |
+| 16 | `16_final_validation_and_verification_DONE.md` | Final Validation & Verification | **DONE** |
+
+Final report: [`specs/REPORT.md`](REPORT.md).
 
 ## Recommended Execution Order
 
