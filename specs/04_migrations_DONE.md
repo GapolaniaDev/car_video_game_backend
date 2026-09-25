@@ -1,6 +1,6 @@
 # Spec 04 — Database Migrations
 
-**Status:** pendiente
+**Status:** DONE
 **Section:** 12, 13
 **Depends on:** Spec 03
 **Blocks:** Spec 15
