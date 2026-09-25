@@ -327,9 +327,35 @@ and runs the command above.
 
 ## OpenAPI
 
-A future milestone will add `docs/openapi.yaml` describing every REST
-endpoint as the contract for the Unity client. The router already
-exposes 501 stubs for all future paths so the URL space is stable.
+The full REST surface is described in [`docs/openapi.yaml`](docs/openapi.yaml).
+Serve it locally with any Swagger UI / Redoc static tool, or use it
+to generate typed clients.
+
+---
+
+## Public access via Cloudflare Tunnel
+
+The stack ships an optional `cloudflared` service that wraps the REST
+API in a Cloudflare Tunnel so external clients (the Unity client, a
+remote teammate) can reach it over HTTPS via a stable hostname —
+without opening inbound firewall ports.
+
+Two modes are supported, controlled by `TUNNEL_MODE` in `.env`:
+
+- **`quick`** (default): ephemeral `*.trycloudflare.com` URL, zero
+  setup. Useful for demos and "let me show you what I'm working on"
+  moments.
+- **`named`**: persistent tunnel attached to a real Cloudflare
+  account + zone, with proper DNS records. Run
+  `./scripts/setup-tunnel.sh` once on the host to mint credentials.
+
+The **UDP Game Server is not tunneled** — Cloudflare Tunnel carries
+TCP/HTTP only. The Game Server keeps its direct `7000:7000/udp`
+host exposure. Cloudflare Spectrum (paid) is the UDP option for the
+day we need it.
+
+Full setup, troubleshooting, and architecture notes live in
+[`docs/cloudflare-tunnel.md`](docs/cloudflare-tunnel.md).
 
 ---
 
@@ -341,6 +367,7 @@ exposes 501 stubs for all future paths so the URL space is stable.
 | backend-api    | 8080 TCP  | internal only         |
 | game-server    | 7000 UDP  | **7000** UDP          |
 | postgres       | 5432 TCP  | internal only         |
+| cloudflared    | —         | outbound only         |
 
 ---
 

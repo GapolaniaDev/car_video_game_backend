@@ -1,0 +1,31 @@
+# ─────────────────────────────────────────────────────────────────────
+# Dockerfile.cloudflared — wrapper image that pairs the official
+# cloudflared binary with a tiny POSIX shell so we can run a
+# mode-aware entrypoint (Spec 22).
+#
+# We do NOT use cloudflare/cloudflared directly because that image
+# is scratch-based with no shell, which prevents us from running
+# a small sh entrypoint that switches between quick / named mode.
+#
+# Build:
+#   docker build -f Dockerfile.cloudflared \
+#                -t racing-game-backend/cloudflared:dev .
+# ─────────────────────────────────────────────────────────────────────
+
+FROM alpine:3.20
+
+# cloudflared ships as a static binary; we copy it out of the official
+# image so we keep their exact build + signing.
+COPY --from=cloudflare/cloudflared:2025.11.1 /usr/local/bin/cloudflared /usr/local/bin/cloudflared
+
+# Minimal runtime deps: ca-certs for HTTPS to Cloudflare, tini for
+# signal forwarding, and the busybox shell is already in alpine.
+RUN apk add --no-cache ca-certificates tini \
+ && addgroup -S cloudflared && adduser -S -G cloudflared cloudflared
+
+USER cloudflared
+
+# Bypass cloudflared's built-in entrypoint (which is just `cloudflared
+# --no-autoupdate`) by declaring nothing; the docker-compose service
+# passes --entrypoint /entrypoint.sh and we mount the script in.
+ENTRYPOINT []

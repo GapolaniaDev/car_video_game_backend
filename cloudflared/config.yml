@@ -1,0 +1,25 @@
+# ─────────────────────────────────────────────────────────────────────
+# Cloudflare Tunnel ingress rules (Spec 22).
+#
+# In QUICK mode cloudflared auto-creates an ephemeral tunnel for a
+# `*.trycloudflare.com` URL and uses this file's `ingress` rules to
+# decide where to route incoming requests. The only rule we need is
+# a catch-all that points at the backend API; cloudflared's hostname
+# is whatever the trycloudflare URL is, so the explicit `hostname:`
+# filter is omitted.
+#
+# In NAMED mode (run by scripts/setup-tunnel.sh) the `tunnel:` and
+# `credentials-file:` fields are populated with the real UUID and
+# the `hostname:` filters are added back.
+# ─────────────────────────────────────────────────────────────────────
+
+tunnel: quick
+credentials-file: /etc/cloudflared/quick.json
+
+ingress:
+  - service: http://backend-api:8080
+
+warp-routing:
+  enabled: false
+
+metrics: localhost:2000
