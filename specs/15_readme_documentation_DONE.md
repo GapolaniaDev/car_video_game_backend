@@ -1,6 +1,6 @@
 # Spec 15 — README Documentation
 
-**Status:** pendiente
+**Status:** DONE
 **Section:** 35
 **Depends on:** All previous specs
 **Blocks:** Spec 17
