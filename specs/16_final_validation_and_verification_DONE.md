@@ -1,6 +1,6 @@
 # Spec 16 — Final Validation & Verification
 
-**Status:** pendiente
+**Status:** DONE
 **Section:** 37, 38, 39, 40
 **Depends on:** ALL prior specs (01–15)
 **Blocks:** —
