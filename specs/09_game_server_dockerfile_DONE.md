@@ -1,6 +1,6 @@
 # Spec 09 — Game Server Dockerfile
 
-**Status:** pendiente
+**Status:** DONE
 **Section:** 19
 **Depends on:** Spec 08
 **Blocks:** Spec 15
