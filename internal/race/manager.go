@@ -17,6 +17,7 @@ type Manager struct {
 	races      map[uuid.UUID]*Race
 	byMatch    map[uuid.UUID]uuid.UUID // match_id -> race_id
 	trackFn    TrackLookup
+	onFinish   func(*Race)
 	tickHz     int
 	maxLaps    int
 	maxPlayers int
@@ -26,8 +27,10 @@ type Manager struct {
 // TrackLookup returns the track for a given match.
 type TrackLookup func(matchID uuid.UUID) (*Track, error)
 
-// NewManager constructs an empty manager.
-func NewManager(tickHz, maxLaps, maxPlayers int, lookup TrackLookup, log *slog.Logger) *Manager {
+// NewManager constructs an empty manager. onFinish is invoked once per
+// race, the moment the race transitions to StatusFinished. Pass nil to
+// skip the hook.
+func NewManager(tickHz, maxLaps, maxPlayers int, lookup TrackLookup, onFinish func(*Race), log *slog.Logger) *Manager {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -44,6 +47,7 @@ func NewManager(tickHz, maxLaps, maxPlayers int, lookup TrackLookup, log *slog.L
 		races:      map[uuid.UUID]*Race{},
 		byMatch:    map[uuid.UUID]uuid.UUID{},
 		trackFn:    lookup,
+		onFinish:   onFinish,
 		tickHz:     tickHz,
 		maxLaps:    maxLaps,
 		maxPlayers: maxPlayers,
@@ -103,6 +107,7 @@ func (m *Manager) NewRace(ctx context.Context, matchID uuid.UUID) (*Race, error)
 		return nil, err
 	}
 	r := New(uuid.New(), track, m.tickHz, m.maxLaps, m.maxPlayers, m.log)
+	r.OnFinish = m.onFinish
 	m.mu.Lock()
 	m.races[r.ID] = r
 	m.byMatch[matchID] = r.ID
@@ -115,6 +120,16 @@ func (m *Manager) NewRace(ctx context.Context, matchID uuid.UUID) (*Race, error)
 	)
 	go r.Run(ctx)
 	return r, nil
+}
+
+// SetOnFinish swaps the per-race OnFinish callback. Safe to call
+// before any races exist (which is the typical wiring pattern). Use
+// this to inject the persistence callback after the manager has been
+// constructed but before races start.
+func (m *Manager) SetOnFinish(cb func(*Race)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.onFinish = cb
 }
 
 // RegisterPlayer routes a JoinRaceRequest to the right race.
@@ -163,11 +178,16 @@ func (r *Race) Run(ctx context.Context) {
 		}
 		r.status = StatusFinished
 		r.FinishTime = time.Now()
+		results := r.finalResultsLocked()
 		r.Events = append(r.Events, RaceFinishedEvt{
 			RaceID:  r.ID,
-			Results: r.finalResultsLocked(),
+			Results: results,
 		})
+		cb := r.OnFinish
 		r.mu.Unlock()
+		if cb != nil {
+			cb(r)
+		}
 		r.closeOnce.Do(func() { close(r.Done) })
 	}
 

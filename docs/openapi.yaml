@@ -197,6 +197,72 @@ paths:
           content:
             application/json: { schema: { $ref: '#/components/schemas/Error' } }
 
+  /players/me/races:
+    get:
+      tags: [player]
+      summary: Recent races for the authenticated player
+      description: |
+        Keyset-paginated by `finished_at`. Default page size 20,
+        max 100. `cursor` is the RFC3339 finished_at of the last
+        race of the previous page.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, default: 20, maximum: 100 }
+        - in: query
+          name: cursor
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlayerRaceHistoryPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /races/{id}:
+    get:
+      tags: [matchmaking]
+      summary: Full detail of a single race (incl. results)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RaceDetail' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /leaderboard:
+    get:
+      tags: [matchmaking]
+      summary: Top-N best laps on a track (default 10, max 100)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: trackId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 10, maximum: 100 }
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeaderboardResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -290,3 +356,54 @@ components:
         gameServerPort: { type: integer, example: 7000 }
         gameToken:      { type: string, description: "HMAC-signed, base64url(payload).base64url(sig); TTL ~5 min" }
         expiresAt:      { type: string, format: date-time }
+    PlayerRaceHistoryPage:
+      type: object
+      properties:
+        races: { type: array, items: { $ref: '#/components/schemas/PlayerRaceSummary' } }
+        nextCursor: { type: string, format: date-time, nullable: true }
+    PlayerRaceSummary:
+      type: object
+      properties:
+        raceId: { type: string, format: uuid }
+        trackId: { type: string, format: uuid }
+        trackName: { type: string }
+        finishedAt: { type: string, format: date-time, nullable: true }
+        position: { type: integer }
+        totalTimeMs: { type: integer }
+        bestLapMs: { type: integer }
+    RaceDetail:
+      type: object
+      properties:
+        raceId: { type: string, format: uuid }
+        trackId: { type: string, format: uuid }
+        trackName: { type: string }
+        status: { type: string, enum: [pending, in_progress, finished, cancelled] }
+        startedAt: { type: string, format: date-time, nullable: true }
+        finishedAt: { type: string, format: date-time, nullable: true }
+        results:
+          type: array
+          items: { $ref: '#/components/schemas/RaceResultRow' }
+    RaceResultRow:
+      type: object
+      properties:
+        playerId: { type: string, format: uuid }
+        displayName: { type: string }
+        position: { type: integer }
+        totalTimeMs: { type: integer }
+        bestLapMs: { type: integer }
+    LeaderboardResponse:
+      type: object
+      properties:
+        trackId: { type: string, format: uuid }
+        trackName: { type: string }
+        entries:
+          type: array
+          items: { $ref: '#/components/schemas/LeaderboardEntry' }
+    LeaderboardEntry:
+      type: object
+      properties:
+        rank: { type: integer }
+        playerId: { type: string, format: uuid }
+        displayName: { type: string }
+        bestLapMs: { type: integer }
+        achievedAt: { type: string, format: date-time, nullable: true }

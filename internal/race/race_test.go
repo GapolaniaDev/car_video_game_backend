@@ -136,7 +136,7 @@ func sprintVec(v Vec3) string { return "{" + itoa(int(v.X)) + "," + itoa(int(v.Y
 func TestRaceManagerRegistersPlayer(t *testing.T) {
 	m := NewManager(60, 1, 4, func(_ uuid.UUID) (*Track, error) {
 		return newSquareTrack(), nil
-	}, nil)
+	}, nil, nil)
 	r, err := m.RegisterPlayer(context.Background(), uuid.New(), uuid.New())
 	if err != nil {
 		t.Fatalf("RegisterPlayer: %v", err)
