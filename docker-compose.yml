@@ -7,6 +7,7 @@
 #   * backend-api    — REST API on internal :8080
 #   * game-server    — UDP game server on internal :7000 (exposed to host)
 #   * nginx          — reverse proxy on host :80
+#   * cloudflared    — optional Cloudflare Tunnel (Spec 22)
 #
 # All services share the `racing-network` bridge network. Secrets are
 # loaded from `.env` (which must NEVER be committed).
@@ -134,6 +135,50 @@ services:
       - "8081:80"
     depends_on:
       - backend-api
+
+  # ─── cloudflared (optional, Spec 22) ────────────────────────────────
+  # Wraps the API in a Cloudflare Tunnel so external clients can reach
+  # it over HTTPS via a stable hostname without opening firewall ports.
+  #
+  # Two modes, controlled by TUNNEL_MODE in `.env`:
+  #
+  #   quick  — cloudflared tunnel --url http://backend-api:8080
+  #            → prints an ephemeral `*.trycloudflare.com` URL on
+  #            startup. No credentials, no DNS, no account needed.
+  #            Perfect for demos / CI / pointing a teammate's build
+  #            at your laptop.
+  #
+  #   named  — cloudflared tunnel run with a real tunnel credentials
+  #            file under ./cloudflared/. Requires
+  #            `scripts/setup-tunnel.sh` to have been run on the
+  #            host at least once.
+  #
+  # The cloudflared container reads TUNNEL_MODE at startup; toggling
+  # the env var and `docker compose up -d --force-recreate cloudflared`
+  # is enough to switch modes.
+  cloudflared:
+    build:
+      context: .
+      dockerfile: Dockerfile.cloudflared
+    image: racing-game-backend/cloudflared:dev
+    container_name: racing-cloudflared
+    init: true
+    entrypoint: /entrypoint.sh
+    environment:
+      TUNNEL_MODE:    ${TUNNEL_MODE:-quick}
+      TUNNEL_DOMAIN:  ${TUNNEL_DOMAIN:-}
+      TUNNEL_TOKEN:   ${TUNNEL_TOKEN:-}
+    volumes:
+      - ./cloudflared:/etc/cloudflared:ro
+      - ./scripts/cloudflared-entrypoint.sh:/entrypoint.sh:ro
+    networks:
+      - racing-network
+    depends_on:
+      - backend-api
+    restart: unless-stopped
+    # No healthcheck: cloudflared's metrics port is bound to
+    # localhost inside the container; use `docker logs
+    # racing-cloudflared` to verify it's up.
 
 # ─── Networks ─────────────────────────────────────────────────────────
 networks:

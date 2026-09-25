@@ -44,3 +44,9 @@ tmp/
 
 # ───────────── Migrations test data ─────────────
 # migrations/ SQL files are committed; nothing to ignore here.
+
+# ───────────── Cloudflare Tunnel (Spec 22) ─────────────
+# Credentials JSON + cert.pem issued by `cloudflared tunnel login`
+# are bearer secrets. Never commit them.
+cloudflared/*.json
+cloudflared/cert.pem
