@@ -1,6 +1,6 @@
 # Spec 05 — REST API Foundation + Health Endpoint
 
-**Status:** pendiente
+**Status:** DONE
 **Section:** 5, 24
 **Depends on:** Specs 02, 03
 **Blocks:** Specs 06, 13, 14
