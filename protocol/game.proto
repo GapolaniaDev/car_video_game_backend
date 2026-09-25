@@ -1,0 +1,112 @@
+syntax = "proto3";
+
+// Wire contract between the Go Game Server and the Unity mobile
+// client. Future game-state traffic (race sync, events) flows over
+// UDP using these messages.
+//
+// Conventions:
+//   * Field tags are frozen — never reorder, never reuse.
+//   * Field names use lower_snake_case in proto, exposed as
+//     CamelCase in Go and C#.
+//   * No PII or auth tokens here — those belong in REST/JWT only.
+package racing.game.v1;
+
+option go_package = "github.com/gustavo/racing-game-backend/protocol/gamepb";
+
+// ─── Primitives ──────────────────────────────────────────────────────
+
+message Vector3 {
+  float x = 1;
+  float y = 2;
+  float z = 3;
+}
+
+message Quaternion {
+  float x = 1;
+  float y = 2;
+  float z = 3;
+  float w = 4;
+}
+
+// ─── Race lifecycle ──────────────────────────────────────────────────
+
+// Sent by Unity when it opens a UDP connection to the Game Server
+// after matchmaking.
+message JoinRaceRequest {
+  string match_id   = 1;
+  string player_id  = 2;
+  string game_token = 3;
+}
+
+// Server response. `ok=true` means the player may proceed; `error`
+// carries a human-readable reason when ok=false.
+message JoinRaceResponse {
+  bool   ok           = 1;
+  string error        = 2;
+  string race_id      = 3;
+  uint64 initial_tick = 4;
+}
+
+message RaceStarting {
+  uint64 start_tick    = 1;
+  uint32 countdown_ms  = 2;
+}
+
+message RaceStarted {
+  uint64 start_tick = 1;
+}
+
+// ─── Live input / state ──────────────────────────────────────────────
+
+// Sent by Unity on every input tick. Server validates / integrates.
+message PlayerInput {
+  uint32 sequence  = 1;
+  float  throttle  = 2;
+  float  brake     = 3;
+  float  steering  = 4;
+}
+
+// Per-car snapshot published by the server.
+message CarState {
+  string    player_id = 1;
+  Vector3   position  = 2;
+  Quaternion rotation = 3;
+  Vector3   velocity  = 4;
+}
+
+// Snapshot of every car in the race. Sent at the configured tick rate.
+message WorldSnapshot {
+  uint64          tick = 1;
+  repeated CarState cars = 2;
+}
+
+// ─── Race events ─────────────────────────────────────────────────────
+
+message CheckpointPassed {
+  string player_id       = 1;
+  uint32 checkpoint_index = 2;
+  uint64 tick            = 3;
+}
+
+message LapCompleted {
+  string player_id   = 1;
+  uint32 lap         = 2;
+  uint32 lap_time_ms = 3;
+}
+
+message RaceFinished {
+  string            race_id = 1;
+  repeated RaceResult results = 2;
+}
+
+message RaceResult {
+  string player_id     = 1;
+  uint32 position      = 2;
+  uint32 total_time_ms = 3;
+  uint32 best_lap_ms   = 4;
+}
+
+message PlayerDisconnected {
+  string player_id = 1;
+  string reason    = 2;
+}
