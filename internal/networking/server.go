@@ -21,6 +21,12 @@ type DispatcherHandler interface {
 	Handle(ctx context.Context, payload []byte, from *net.UDPAddr) []byte
 }
 
+// WriteToUDP exposes the bare write side of the connection so the
+// broadcaster can fan out snapshots.
+func (s *UDPServer) WriteToUDP(b []byte, addr *net.UDPAddr) (int, error) {
+	return s.conn.WriteToUDP(b, addr)
+}
+
 // UDPServer wraps a single net.UDPConn with a context-aware read loop
 // and a sync.WaitGroup so callers can wait for shutdown.
 type UDPServer struct {

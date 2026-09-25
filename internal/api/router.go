@@ -81,13 +81,21 @@ func NewRouter(deps RouterDeps) http.Handler {
 	// ─── Future endpoint stubs (kept as 501 placeholders) ─────────
 	stubPaths := []string{
 		"/api/v1/players",
-		"/api/v1/matchmaking",
 		"/api/v1/races",
 		"/api/v1/leaderboard",
 	}
 	for _, p := range stubPaths {
 		mux.HandleFunc("GET "+p, handlers.Stub(p))
 		mux.HandleFunc("POST "+p, handlers.Stub(p))
+	}
+	// /matchmaking/join: stub unless the real handler was wired above.
+	if deps.Matchmaking == nil {
+		mux.HandleFunc("GET /api/v1/matchmaking/join", handlers.Stub("/api/v1/matchmaking/join"))
+		mux.HandleFunc("POST /api/v1/matchmaking/join", handlers.Stub("/api/v1/matchmaking/join"))
+	} else {
+		// /matchmaking root (no /join path) always falls through.
+		mux.HandleFunc("GET /api/v1/matchmaking", handlers.Stub("/api/v1/matchmaking"))
+		mux.HandleFunc("POST /api/v1/matchmaking", handlers.Stub("/api/v1/matchmaking"))
 	}
 
 	return middleware.Chain(mux, middleware.RequestLogger(deps.Log))
