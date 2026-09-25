@@ -63,6 +63,8 @@ func main() {
 		DB:          pool,
 		Log:         log,
 		AuthService: authSvc,
+		JWTSecret:   cfg.JWTSecret,
+		JWTIssuer:   cfg.JWTIssuer,
 	})
 
 	server := &http.Server{
