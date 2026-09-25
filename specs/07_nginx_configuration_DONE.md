@@ -1,6 +1,6 @@
 # Spec 07 — Nginx Configuration
 
-**Status:** pendiente
+**Status:** DONE
 **Section:** 16
 **Depends on:** Specs 05, 06
 **Blocks:** Spec 15
