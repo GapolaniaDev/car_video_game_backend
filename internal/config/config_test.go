@@ -2,6 +2,7 @@ package config
 
 import (
 	"testing"
+	"time"
 )
 
 // withEnv sets an env var for the duration of the test and restores it.
@@ -84,5 +85,29 @@ func TestDatabaseURL(t *testing.T) {
 	want := "postgres://alice:x@db.example.com:5433/gamedb?sslmode=require"
 	if got != want {
 		t.Errorf("DatabaseURL() = %q, want %q", got, want)
+	}
+}
+
+// TestAuthFieldsDefaults verifies JWT/game-token defaults.
+func TestAuthFieldsDefaults(t *testing.T) {
+	setEnv(t, "APP_ENV", "development")
+	setEnv(t, "POSTGRES_PASSWORD", "x")
+	setEnv(t, "JWT_SECRET", "x")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.JWTIssuer != "racing-game-backend" {
+		t.Errorf("JWTIssuer default = %q, want racing-game-backend", cfg.JWTIssuer)
+	}
+	if cfg.JWTAccessTTL != time.Hour {
+		t.Errorf("JWTAccessTTL default = %s, want 1h", cfg.JWTAccessTTL)
+	}
+	if cfg.GameServerPublicHost != "localhost" {
+		t.Errorf("GameServerPublicHost default = %q, want localhost", cfg.GameServerPublicHost)
+	}
+	if cfg.GameServerPublicPort != 7000 {
+		t.Errorf("GameServerPublicPort default = %d, want 7000", cfg.GameServerPublicPort)
 	}
 }

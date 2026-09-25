@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/gustavo/racing-game-backend/internal/api"
+	"github.com/gustavo/racing-game-backend/internal/auth"
 	"github.com/gustavo/racing-game-backend/internal/config"
 	"github.com/gustavo/racing-game-backend/internal/database"
 )
@@ -43,14 +44,26 @@ func main() {
 	defer startupCancel()
 
 	var pool *database.Pool
+	var authSvc *auth.Service
 	p, err := database.New(startupCtx, cfg, log)
 	if err != nil {
 		log.Warn("database not reachable at startup", slog.String("error", err.Error()))
 	} else {
 		pool = p
+		authSvc = auth.NewService(
+			auth.NewRepo(pool.Pool),
+			cfg.JWTSecret,
+			cfg.JWTIssuer,
+			cfg.JWTAccessTTL,
+			log,
+		)
 	}
 
-	router := api.NewRouter(api.RouterDeps{DB: pool, Log: log})
+	router := api.NewRouter(api.RouterDeps{
+		DB:          pool,
+		Log:         log,
+		AuthService: authSvc,
+	})
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.APIPort),
@@ -61,8 +74,6 @@ func main() {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	// Signal-aware context. When SIGINT or SIGTERM arrives, cancel
-	// the context so serve() can return and shutdown can proceed.
 	rootCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
