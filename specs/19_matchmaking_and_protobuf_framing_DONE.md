@@ -130,3 +130,27 @@ The text-protocol `HandlePacket` is **replaced** by a Protobuf-aware dispatcher:
 
 - `game_token` and JWT are **deliberately separate**. JWT is the identity layer (REST, long-lived). `game_token` is the session layer (UDP, short-lived, single-use). Don't try to reuse the JWT over UDP.
 - HMAC-SHA256 is enough for the MVP; switch to ECDSA or NaCl later if replay-attack resistance requires a stateful server-side nonce table. For MVP the `consumed` flag in Postgres plus the short TTL is sufficient.
+---
+
+## Done (2026-09-25)
+
+Implemented on branch `feature/spec-19-matchmaking-protobuf` → merged into `develop`.
+
+**Deliverables shipped**
+- `migrations/000004_matchmaking.{up,down}.sql`
+- `internal/matchmaking/{service,token,repo,handler,errors,crypto_test,token_test,token_testhelpers_test}.go`
+- `internal/protoframing/{framing.go,framing_test.go}`: 4-byte BE length-prefix, 64 KiB cap
+- `internal/networking/{dispatcher.go,dispatcher_test.go}` + `server.go` (replaces text `udp_server.go`)
+- `cmd/game-server/main.go`: opens DB, wires dispatcher
+- `cmd/udp-client/main.go`: --mode=protobuf sends a length-prefixed JoinRaceRequest
+- `internal/api/router.go`: registers `POST /api/v1/matchmaking/join`
+- `cmd/api/main.go`: builds Matchmaking service
+- `docker-compose.yml`: `game-server` joins the network, depends on Postgres+migrate, both services receive `GAME_TOKEN_SECRET`
+- `docs/openapi.yaml`: new path and `MatchInfo` schema
+- `.env.example`: documents `GAME_SERVER_PUBLIC_HOST/PORT`
+
+**Live verification**
+- Register → mint match → `game_token` row in `matchmaking_assignments`
+- UDP first join → `ok=true raceId=… initialTick=…`
+- Replay same `game_token` → `ok=false error="matchmaking: token already consumed"`
+- Tampered token (last char flipped) → `ok=false error="matchmaking: invalid token"`
