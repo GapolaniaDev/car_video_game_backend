@@ -1,0 +1,42 @@
+# syntax=docker/dockerfile:1.7
+# ─────────────────────────────────────────────────────────────────────
+# Multi-stage build for the backend-api REST server.
+#
+# Output image is gcr.io/distroless/static-debian:nonroot — no shell,
+# no package manager, runs as uid 65532. Image size is small and the
+# attack surface is minimal.
+# ─────────────────────────────────────────────────────────────────────
+
+# ─── Build stage ─────────────────────────────────────────────────────
+FROM golang:1.27-alpine AS build
+
+WORKDIR /src
+
+# Cache go.mod/go.sum first to maximize layer reuse across builds.
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Now copy the rest of the source.
+COPY . .
+
+# CGO_ENABLED=0 → fully static binary. -trimpath strips absolute paths
+# from the binary for reproducibility. -ldflags "-s -w" strips symbol
+# table and DWARF debug info.
+RUN CGO_ENABLED=0 go build \
+        -trimpath \
+        -ldflags="-s -w" \
+        -o /out/api \
+        ./cmd/api
+
+# ─── Runtime stage ───────────────────────────────────────────────────
+FROM gcr.io/distroless/static-debian12:nonroot AS runtime
+
+# Distroless ships with /etc/passwd containing the `nonroot` user
+# (uid 65532). We just copy the binary in.
+COPY --from=build /out/api /api
+
+EXPOSE 8080
+
+USER nonroot:nonroot
+
+ENTRYPOINT ["/api"]
