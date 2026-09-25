@@ -1,6 +1,6 @@
 # Spec 14 — Docker Compose Orchestration
 
-**Status:** pendiente
+**Status:** DONE
 **Section:** 17, 18, 20, 25
 **Depends on:** Specs 03, 04, 06, 07, 09, 13
 **Blocks:** Spec 17

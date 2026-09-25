@@ -1,0 +1,130 @@
+# ─────────────────────────────────────────────────────────────────────
+# docker-compose.yml — full local stack for the racing-game-backend MVP.
+#
+# Services:
+#   * postgres       — persistent DB (internal only)
+#   * migrate        — one-shot runner that applies SQL migrations and exits
+#   * backend-api    — REST API on internal :8080
+#   * game-server    — UDP game server on internal :7000 (exposed to host)
+#   * nginx          — reverse proxy on host :80
+#
+# All services share the `racing-network` bridge network. Secrets are
+# loaded from `.env` (which must NEVER be committed).
+# ─────────────────────────────────────────────────────────────────────
+
+name: racing-game-backend
+
+# ─── Defaults applied to every service ────────────────────────────────
+x-defaults: &defaults
+  restart: unless-stopped
+  networks:
+    - racing-network
+
+services:
+
+  # ─── postgres ───────────────────────────────────────────────────────
+  postgres:
+    <<: *defaults
+    image: postgres:16-alpine
+    container_name: racing-postgres
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB}
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    # No `ports:` — internal only.
+
+  # ─── migrate (one-shot) ─────────────────────────────────────────────
+  # Runs SQL migrations against the healthy Postgres, then exits 0.
+  # backend-api waits for this to succeed before starting.
+  migrate:
+    image: migrate/migrate:v4.18.1
+    container_name: racing-migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - racing-network
+    volumes:
+      - ./migrations:/migrations
+    command:
+      - "-path=/migrations"
+      - "-database=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
+      - "up"
+    restart: "no"
+
+  # ─── backend-api ────────────────────────────────────────────────────
+  backend-api:
+    <<: *defaults
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    image: racing-game-backend/api:dev
+    container_name: racing-backend-api
+    environment:
+      APP_ENV:           ${APP_ENV}
+      LOG_LEVEL:         ${LOG_LEVEL}
+      API_PORT:          "8080"
+      POSTGRES_HOST:     postgres
+      POSTGRES_PORT:     "5432"
+      POSTGRES_DB:       ${POSTGRES_DB}
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_SSLMODE:  ${POSTGRES_SSLMODE}
+      JWT_SECRET:        ${JWT_SECRET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    # Healthcheck omitted intentionally — the distroless image does
+    # not ship curl/wget. Use docker-compose-level TCP probe or rely
+    # on the migrate step + depends_on ordering.
+
+  # ─── game-server ────────────────────────────────────────────────────
+  game-server:
+    <<: *defaults
+    build:
+      context: .
+      dockerfile: Dockerfile.game-server
+    image: racing-game-backend/game-server:dev
+    container_name: racing-game-server
+    environment:
+      APP_ENV:           ${APP_ENV}
+      LOG_LEVEL:         ${LOG_LEVEL}
+      GAME_SERVER_PORT:  "7000"
+      JWT_SECRET:        ${JWT_SECRET}
+    ports:
+      - "7000:7000/udp"
+    # UDP has no HTTP healthcheck. `pgrep` would require a shell we
+    # don't have. Rely on docker restart policy and explicit smoke
+    # tests (go run ./cmd/udp-client).
+
+  # ─── nginx ──────────────────────────────────────────────────────────
+  nginx:
+    <<: *defaults
+    image: nginx:1.27-alpine
+    container_name: racing-nginx
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "8081:80"
+    depends_on:
+      - backend-api
+
+# ─── Networks ─────────────────────────────────────────────────────────
+networks:
+  racing-network:
+    driver: bridge
+
+# ─── Volumes ──────────────────────────────────────────────────────────
+volumes:
+  postgres_data:
+    driver: local
