@@ -33,7 +33,16 @@ type Config struct {
 	PostgresSSLMode  string
 
 	// JWT signing secret. Must never be empty in non-dev environments.
-	JWTSecret string
+	JWTSecret   string
+	JWTIssuer   string
+	JWTAccessTTL time.Duration
+
+	// Game Server routing info surfaced to clients on /matchmaking/join.
+	GameServerPublicHost string
+	GameServerPublicPort int
+
+	// HMAC secret shared by API and Game Server for `game_token`.
+	GameTokenSecret string
 }
 
 // Load reads configuration from the process environment and returns a
@@ -41,16 +50,21 @@ type Config struct {
 // missing or malformed.
 func Load() (*Config, error) {
 	cfg := &Config{
-		AppEnv:          getEnv("APP_ENV", "development"),
-		APIPort:         getEnvInt("API_PORT", 8080),
-		GameServerPort:  getEnvInt("GAME_SERVER_PORT", 7000),
-		PostgresHost:    getEnv("POSTGRES_HOST", "postgres"),
-		PostgresPort:    getEnvInt("POSTGRES_PORT", 5432),
-		PostgresDB:      getEnv("POSTGRES_DB", "racing_game"),
-		PostgresUser:    getEnv("POSTGRES_USER", "racing_user"),
-		PostgresPassword: os.Getenv("POSTGRES_PASSWORD"),
-		PostgresSSLMode: getEnv("POSTGRES_SSLMODE", "disable"),
-		JWTSecret:       os.Getenv("JWT_SECRET"),
+		AppEnv:               getEnv("APP_ENV", "development"),
+		APIPort:              getEnvInt("API_PORT", 8080),
+		GameServerPort:       getEnvInt("GAME_SERVER_PORT", 7000),
+		PostgresHost:         getEnv("POSTGRES_HOST", "postgres"),
+		PostgresPort:         getEnvInt("POSTGRES_PORT", 5432),
+		PostgresDB:           getEnv("POSTGRES_DB", "racing_game"),
+		PostgresUser:         getEnv("POSTGRES_USER", "racing_user"),
+		PostgresPassword:     os.Getenv("POSTGRES_PASSWORD"),
+		PostgresSSLMode:      getEnv("POSTGRES_SSLMODE", "disable"),
+		JWTSecret:            os.Getenv("JWT_SECRET"),
+		JWTIssuer:            getEnv("JWT_ISSUER", "racing-game-backend"),
+		JWTAccessTTL:         getEnvDuration("JWT_ACCESS_TTL", time.Hour),
+		GameServerPublicHost: getEnv("GAME_SERVER_PUBLIC_HOST", "localhost"),
+		GameServerPublicPort: getEnvInt("GAME_SERVER_PUBLIC_PORT", 7000),
+		GameTokenSecret:      getEnv("GAME_TOKEN_SECRET", "dev_game_token_secret_change_me"),
 	}
 
 	lvl, err := parseLogLevel(getEnv("LOG_LEVEL", "info"))
@@ -69,6 +83,9 @@ func Load() (*Config, error) {
 		if cfg.JWTSecret == "" {
 			return nil, errors.New("JWT_SECRET is required when APP_ENV != development")
 		}
+		if cfg.GameTokenSecret == "" {
+			return nil, errors.New("GAME_TOKEN_SECRET is required when APP_ENV != development")
+		}
 	}
 
 	// Loose sanity checks regardless of env.
@@ -84,6 +101,12 @@ func Load() (*Config, error) {
 	}
 	if cfg.GameServerPort <= 0 || cfg.GameServerPort > 65535 {
 		return nil, fmt.Errorf("GAME_SERVER_PORT out of range: %d", cfg.GameServerPort)
+	}
+	if cfg.GameServerPublicPort <= 0 || cfg.GameServerPublicPort > 65535 {
+		return nil, fmt.Errorf("GAME_SERVER_PUBLIC_PORT out of range: %d", cfg.GameServerPublicPort)
+	}
+	if cfg.JWTAccessTTL <= 0 {
+		return nil, fmt.Errorf("JWT_ACCESS_TTL must be positive, got %s", cfg.JWTAccessTTL)
 	}
 
 	return cfg, nil
@@ -151,4 +174,16 @@ func parseLogLevel(s string) (slog.Level, error) {
 	default:
 		return slog.LevelInfo, fmt.Errorf("unknown level %q (expected debug|info|warn|error)", s)
 	}
+}
+
+func getEnvDuration(key string, fallback time.Duration) time.Duration {
+	v, ok := os.LookupEnv(key)
+	if !ok || v == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return fallback
+	}
+	return d
 }
